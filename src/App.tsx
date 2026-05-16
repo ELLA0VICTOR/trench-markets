@@ -1,121 +1,194 @@
-import { useState } from 'react'
-import reactLogo from './assets/react.svg'
-import viteLogo from './assets/vite.svg'
-import heroImg from './assets/hero.png'
-import './App.css'
+import { useEffect, useMemo, useState } from 'react'
+import type { FormEvent } from 'react'
+import { CreateMarketPanel } from './components/CreateMarketPanel'
+import { Footer } from './components/Footer'
+import { MarketBoard } from './components/MarketBoard'
+import { MarketDetail } from './components/MarketDetail'
+import { MarketTabs } from './components/MarketTabs'
+import { Topbar } from './components/Topbar'
+import { marketTabs, seedMarkets } from './data/markets'
+import { buildCustomMarketWithImage, reportHashFor, signalFor, txHashFor } from './lib/marketMath'
+import { fetchGammaMarkets } from './services/gamma'
+import type { FeedState, Market, MarketTab, PaymentState } from './types/market'
+
+function matchesTab(market: Market, activeTab: MarketTab) {
+  if (activeTab === 'New') return true
+  if (activeTab === 'Ending Soon') return market.status === 'Ending Soon'
+
+  return market.tab === activeTab
+}
+
+function matchesSearch(market: Market, query: string) {
+  const normalized = query.trim().toLowerCase()
+  if (!normalized) return true
+
+  return [market.title, market.category, market.source, market.venue, market.tab]
+    .join(' ')
+    .toLowerCase()
+    .includes(normalized)
+}
 
 function App() {
-  const [count, setCount] = useState(0)
+  const [markets, setMarkets] = useState<Market[]>(seedMarkets)
+  const [feedState, setFeedState] = useState<FeedState>('syncing')
+  const [selectedId, setSelectedId] = useState(seedMarkets[0].id)
+  const [paymentState, setPaymentState] = useState<PaymentState>('quote')
+  const [query, setQuery] = useState('')
+  const [activeTab, setActiveTab] = useState<MarketTab>('New')
+  const [createOpen, setCreateOpen] = useState(false)
+  const [customQuestion, setCustomQuestion] = useState('')
+  const [customImageUrl, setCustomImageUrl] = useState<string>()
+  const [detailMarketId, setDetailMarketId] = useState<string | null>(null)
+
+  useEffect(() => {
+    const controller = new AbortController()
+
+    async function loadMarkets() {
+      try {
+        const gammaMarkets = await fetchGammaMarkets(controller.signal)
+
+        if (gammaMarkets) {
+          setMarkets(gammaMarkets)
+          setSelectedId(gammaMarkets[0].id)
+          setFeedState('live')
+          return
+        }
+
+        setFeedState('fallback')
+      } catch {
+        if (!controller.signal.aborted) {
+          setFeedState('fallback')
+        }
+      }
+    }
+
+    loadMarkets()
+
+    return () => controller.abort()
+  }, [])
+
+  const filteredMarkets = useMemo(
+    () => markets.filter((market) => matchesTab(market, activeTab) && matchesSearch(market, query)),
+    [activeTab, markets, query],
+  )
+
+  const selectedMarket = useMemo(
+    () =>
+      markets.find((market) => market.id === detailMarketId) ||
+      filteredMarkets.find((market) => market.id === selectedId) ||
+      filteredMarkets[0] ||
+      markets.find((market) => market.id === selectedId) ||
+      markets[0],
+    [detailMarketId, filteredMarkets, markets, selectedId],
+  )
+
+  const signal = signalFor(selectedMarket.price, selectedMarket.fairPrice)
+  const reportHash = reportHashFor(selectedMarket)
+  const txHash = txHashFor(selectedMarket)
+
+  function selectMarket(id: string) {
+    setSelectedId(id)
+    setDetailMarketId(id)
+    setPaymentState('quote')
+  }
+
+  function handleTabChange(tab: MarketTab) {
+    setActiveTab(tab)
+    setPaymentState('quote')
+  }
+
+  function handleCustomMarket(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+
+    const trimmed = customQuestion.trim()
+    if (!trimmed) return
+
+    const customMarket = buildCustomMarketWithImage(trimmed, customImageUrl)
+    setMarkets((current) => [customMarket, ...current])
+    setSelectedId(customMarket.id)
+    setDetailMarketId(customMarket.id)
+    setActiveTab('Custom')
+    setCustomQuestion('')
+    setCustomImageUrl(undefined)
+    setCreateOpen(false)
+    setPaymentState('quote')
+  }
+
+  function handleCustomImage(file: File | null) {
+    if (!file) {
+      setCustomImageUrl(undefined)
+      return
+    }
+
+    const reader = new FileReader()
+    reader.onload = () => {
+      if (typeof reader.result === 'string') {
+        setCustomImageUrl(reader.result)
+      }
+    }
+    reader.readAsDataURL(file)
+  }
+
+  function requestReport() {
+    setPaymentState('required')
+  }
+
+  function settleReport() {
+    setPaymentState('settling')
+    window.setTimeout(() => {
+      setPaymentState('paid')
+    }, 650)
+  }
+
+  function publishSignal() {
+    setPaymentState('published')
+  }
 
   return (
-    <>
-      <section id="center">
-        <div className="hero">
-          <img src={heroImg} className="base" width="170" height="179" alt="" />
-          <img src={reactLogo} className="framework" alt="React logo" />
-          <img src={viteLogo} className="vite" alt="Vite logo" />
-        </div>
-        <div>
-          <h1>Get started</h1>
-          <p>
-            Edit <code>src/App.tsx</code> and save to test <code>HMR</code>
-          </p>
-        </div>
-        <button
-          type="button"
-          className="counter"
-          onClick={() => setCount((count) => count + 1)}
-        >
-          Count is {count}
-        </button>
-      </section>
+    <div className="app-shell">
+      <Topbar
+        query={query}
+        onQueryChange={setQuery}
+      />
 
-      <div className="ticks"></div>
+      {detailMarketId ? (
+        <MarketDetail
+          market={selectedMarket}
+          paymentState={paymentState}
+          signal={signal}
+          reportHash={reportHash}
+          txHash={txHash}
+          onBack={() => setDetailMarketId(null)}
+          onReportRequest={requestReport}
+          onSettleReport={settleReport}
+          onSignalPublish={publishSignal}
+        />
+      ) : (
+        <>
+          <MarketTabs tabs={marketTabs} activeTab={activeTab} onTabChange={handleTabChange} />
+          <main id="top" className="markets-layout">
+            <CreateMarketPanel
+              open={createOpen}
+              question={customQuestion}
+              imagePreview={customImageUrl}
+              onQuestionChange={setCustomQuestion}
+              onImageChange={handleCustomImage}
+              onSubmit={handleCustomMarket}
+              onClose={() => setCreateOpen(false)}
+            />
+            <MarketBoard
+              markets={filteredMarkets}
+              selectedMarket={selectedMarket}
+              feedState={feedState}
+              onMarketSelect={selectMarket}
+              onCreateClick={() => setCreateOpen((open) => !open)}
+            />
+          </main>
+        </>
+      )}
 
-      <section id="next-steps">
-        <div id="docs">
-          <svg className="icon" role="presentation" aria-hidden="true">
-            <use href="/icons.svg#documentation-icon"></use>
-          </svg>
-          <h2>Documentation</h2>
-          <p>Your questions, answered</p>
-          <ul>
-            <li>
-              <a href="https://vite.dev/" target="_blank">
-                <img className="logo" src={viteLogo} alt="" />
-                Explore Vite
-              </a>
-            </li>
-            <li>
-              <a href="https://react.dev/" target="_blank">
-                <img className="button-icon" src={reactLogo} alt="" />
-                Learn more
-              </a>
-            </li>
-          </ul>
-        </div>
-        <div id="social">
-          <svg className="icon" role="presentation" aria-hidden="true">
-            <use href="/icons.svg#social-icon"></use>
-          </svg>
-          <h2>Connect with us</h2>
-          <p>Join the Vite community</p>
-          <ul>
-            <li>
-              <a href="https://github.com/vitejs/vite" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#github-icon"></use>
-                </svg>
-                GitHub
-              </a>
-            </li>
-            <li>
-              <a href="https://chat.vite.dev/" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#discord-icon"></use>
-                </svg>
-                Discord
-              </a>
-            </li>
-            <li>
-              <a href="https://x.com/vite_js" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#x-icon"></use>
-                </svg>
-                X.com
-              </a>
-            </li>
-            <li>
-              <a href="https://bsky.app/profile/vite.dev" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#bluesky-icon"></use>
-                </svg>
-                Bluesky
-              </a>
-            </li>
-          </ul>
-        </div>
-      </section>
-
-      <div className="ticks"></div>
-      <section id="spacer"></section>
-    </>
+      <Footer />
+    </div>
   )
 }
 
