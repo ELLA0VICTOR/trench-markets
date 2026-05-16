@@ -8,7 +8,7 @@ type IntroProps = {
 }
 
 function feedLabel(feedState: FeedState) {
-  if (feedState === 'live') return 'Gamma live'
+  if (feedState === 'live') return 'Polymarket live'
   if (feedState === 'syncing') return 'Syncing'
   return 'Seeded'
 }

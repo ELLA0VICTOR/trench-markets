@@ -2,14 +2,17 @@ import { reportPrice } from '../data/markets'
 import { formatDate, formatPercent, formatUsd } from '../lib/format'
 import { confidenceFor, edgeLabel } from '../lib/marketMath'
 import type { Market, PaymentState, Signal } from '../types/market'
+import type { AgentReport } from '../types/report'
 import { MiniIcon } from './MiniIcon'
 
 type MarketDetailProps = {
   market: Market
   paymentState: PaymentState
+  reportState: 'idle' | 'loading' | 'ready' | 'offline'
+  agentReport?: AgentReport
   signal: Signal
   reportHash: string
-  txHash: string
+  proofLabel: string
   onBack: () => void
   onReportRequest: () => void
   onSettleReport: () => void
@@ -36,6 +39,18 @@ function paymentCopy(paymentState: PaymentState) {
   return 'Signal hash is committed to the Arc proof rail.'
 }
 
+function reportStateCopy(reportState: MarketDetailProps['reportState']) {
+  if (reportState === 'loading') {
+    return 'Analyst agent is preparing the locked report.'
+  }
+
+  if (reportState === 'offline') {
+    return 'Local fallback is active because the agent API is offline.'
+  }
+
+  return 'Buyer agent can request the locked report artifact.'
+}
+
 function DetailHeroImage({ market }: { market: Market }) {
   if (market.imageUrl) {
     return <img src={market.imageUrl} alt="" referrerPolicy="no-referrer" />
@@ -54,16 +69,24 @@ function DetailHeroImage({ market }: { market: Market }) {
 export function MarketDetail({
   market,
   paymentState,
+  reportState,
+  agentReport,
   signal,
   reportHash,
-  txHash,
+  proofLabel,
   onBack,
   onReportRequest,
   onSettleReport,
   onSignalPublish,
 }: MarketDetailProps) {
-  const confidence = confidenceFor(market.price, market.fairPrice, market.liquidity)
+  const confidence = agentReport?.confidence || confidenceFor(market.price, market.fairPrice, market.liquidity)
   const unlocked = paymentState === 'paid' || paymentState === 'published'
+  const fairPrice = agentReport?.fairPrice || market.fairPrice
+  const reportThesis = agentReport?.thesis || market.thesis
+  const catalysts = agentReport?.catalysts || market.catalysts
+  const risks = agentReport?.risks || market.risks
+  const challenge = agentReport?.challenge
+  const runs = agentReport?.runs || []
 
   return (
     <main className="detail-layout">
@@ -95,7 +118,7 @@ export function MarketDetail({
           </div>
           <div>
             <span>Agent fair</span>
-            <strong>{formatPercent(market.fairPrice)}</strong>
+            <strong>{formatPercent(fairPrice)}</strong>
           </div>
           <div>
             <span>Ends</span>
@@ -117,23 +140,34 @@ export function MarketDetail({
         <section className="detail-section">
           <div className="detail-section-heading">
             <h2>Agent report</h2>
-            <span>{unlocked ? 'unlocked' : 'locked'}</span>
+            <span>{reportState === 'loading' ? 'syncing' : unlocked ? 'unlocked' : 'locked'}</span>
           </div>
           <p>
             {unlocked
-              ? market.thesis
+              ? reportThesis
               : 'The reasoning packet stays locked until the buyer agent satisfies the x402 challenge.'}
           </p>
           <div className="report-grid">
             <div>
               <span>Catalysts</span>
-              <p>{market.catalysts.join(' / ')}</p>
+              <p>{catalysts.join(' / ')}</p>
             </div>
             <div>
               <span>Risks</span>
-              <p>{market.risks.join(' / ')}</p>
+              <p>{risks.join(' / ')}</p>
             </div>
           </div>
+          {runs.length > 0 ? (
+            <div className="agent-run-list" aria-label="Agent runs">
+              {runs.map((run, index) => (
+                <div key={`${run.agent}-${index}`}>
+                  <span>{run.agent}</span>
+                  <strong>{run.status}</strong>
+                  <p>{run.summary}</p>
+                </div>
+              ))}
+            </div>
+          ) : null}
         </section>
       </section>
 
@@ -168,19 +202,21 @@ export function MarketDetail({
               <MiniIcon type="signal" />
               <div>
                 <span>Seller</span>
-                <strong>analyst.trench</strong>
+                <strong>{challenge?.receiver || 'analyst.trench'}</strong>
               </div>
             </div>
             <div className="relay-line">
               <MiniIcon type="pay" />
               <div>
                 <span>Price</span>
-                <strong>{reportPrice}</strong>
+                <strong>{challenge ? `$${challenge.amount} ${challenge.asset}` : reportPrice}</strong>
               </div>
             </div>
           </div>
 
-          <p className="action-copy">{paymentCopy(paymentState)}</p>
+          <p className="action-copy">
+            {paymentState === 'quote' ? reportStateCopy(reportState) : paymentCopy(paymentState)}
+          </p>
 
           <div className="action-buttons">
             <button type="button" onClick={onReportRequest} disabled={paymentState !== 'quote'}>
@@ -204,7 +240,7 @@ export function MarketDetail({
             </div>
             <div>
               <dt>Tx hash</dt>
-              <dd>{paymentState === 'published' ? txHash : 'not published'}</dd>
+              <dd>{paymentState === 'published' ? proofLabel : 'not published'}</dd>
             </div>
           </dl>
         </div>

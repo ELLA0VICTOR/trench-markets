@@ -7,9 +7,16 @@ import { MarketDetail } from './components/MarketDetail'
 import { MarketTabs } from './components/MarketTabs'
 import { Topbar } from './components/Topbar'
 import { marketTabs, seedMarkets } from './data/markets'
-import { buildCustomMarketWithImage, reportHashFor, signalFor, txHashFor } from './lib/marketMath'
+import { buildCustomMarketWithImage, reportHashFor, signalFor } from './lib/marketMath'
+import {
+  analyzeMarket,
+  publishReportProof,
+  requestLockedReport,
+  settleReportPayment,
+} from './services/agents'
 import { fetchGammaMarkets } from './services/gamma'
 import type { FeedState, Market, MarketTab, PaymentState } from './types/market'
+import type { AgentReport } from './types/report'
 
 function matchesTab(market: Market, activeTab: MarketTab) {
   if (activeTab === 'New') return true
@@ -39,6 +46,8 @@ function App() {
   const [customQuestion, setCustomQuestion] = useState('')
   const [customImageUrl, setCustomImageUrl] = useState<string>()
   const [detailMarketId, setDetailMarketId] = useState<string | null>(null)
+  const [agentReport, setAgentReport] = useState<AgentReport>()
+  const [reportState, setReportState] = useState<'idle' | 'loading' | 'ready' | 'offline'>('idle')
 
   useEffect(() => {
     const controller = new AbortController()
@@ -83,13 +92,36 @@ function App() {
   )
 
   const signal = signalFor(selectedMarket.price, selectedMarket.fairPrice)
-  const reportHash = reportHashFor(selectedMarket)
-  const txHash = txHashFor(selectedMarket)
+  const reportHash = agentReport?.reportHash || reportHashFor(selectedMarket)
+  const proofLabel = agentReport?.proof?.txHash || agentReport?.proof?.proofId || 'queued for Arc writer'
+
+  useEffect(() => {
+    if (!detailMarketId) {
+      return
+    }
+
+    const controller = new AbortController()
+
+    analyzeMarket(selectedMarket, controller.signal)
+      .then((report) => {
+        setAgentReport(report)
+        setReportState('ready')
+      })
+      .catch(() => {
+        if (!controller.signal.aborted) {
+          setReportState('offline')
+        }
+      })
+
+    return () => controller.abort()
+  }, [detailMarketId, selectedMarket])
 
   function selectMarket(id: string) {
     setSelectedId(id)
     setDetailMarketId(id)
     setPaymentState('quote')
+    setAgentReport(undefined)
+    setReportState('loading')
   }
 
   function handleTabChange(tab: MarketTab) {
@@ -112,6 +144,13 @@ function App() {
     setCustomImageUrl(undefined)
     setCreateOpen(false)
     setPaymentState('quote')
+    setAgentReport(undefined)
+    setReportState('loading')
+  }
+
+  function closeDetail() {
+    setDetailMarketId(null)
+    setReportState('idle')
   }
 
   function handleCustomImage(file: File | null) {
@@ -129,18 +168,40 @@ function App() {
     reader.readAsDataURL(file)
   }
 
-  function requestReport() {
+  async function requestReport() {
     setPaymentState('required')
+    try {
+      const report = await requestLockedReport(selectedMarket)
+      setAgentReport(report)
+      setReportState('ready')
+    } catch {
+      setReportState('offline')
+    }
   }
 
-  function settleReport() {
+  async function settleReport() {
     setPaymentState('settling')
-    window.setTimeout(() => {
+    try {
+      const report = await settleReportPayment(selectedMarket.id, reportHash)
+      setAgentReport(report)
       setPaymentState('paid')
-    }, 650)
+      setReportState('ready')
+    } catch {
+      window.setTimeout(() => {
+        setPaymentState('paid')
+      }, 650)
+      setReportState('offline')
+    }
   }
 
-  function publishSignal() {
+  async function publishSignal() {
+    try {
+      const report = await publishReportProof(selectedMarket.id, reportHash)
+      setAgentReport(report)
+      setReportState('ready')
+    } catch {
+      setReportState('offline')
+    }
     setPaymentState('published')
   }
 
@@ -155,10 +216,12 @@ function App() {
         <MarketDetail
           market={selectedMarket}
           paymentState={paymentState}
-          signal={signal}
+          reportState={reportState}
+          agentReport={agentReport}
+          signal={agentReport?.signal || signal}
           reportHash={reportHash}
-          txHash={txHash}
-          onBack={() => setDetailMarketId(null)}
+          proofLabel={proofLabel}
+          onBack={closeDetail}
           onReportRequest={requestReport}
           onSettleReport={settleReport}
           onSignalPublish={publishSignal}

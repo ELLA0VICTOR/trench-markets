@@ -1,13 +1,8 @@
-import { seedMarkets } from '../data/markets'
-import { buildFairPrice } from '../lib/marketMath'
-import type { GammaEvent, Market, MarketTab } from '../types/market'
+import { buildFairPrice, hashFloat } from '../lib/math.js'
+import type { AgentRun, GammaEvent, Market, MarketTab } from '../types.js'
 
 const GAMMA_EVENTS_URL =
-  'https://gamma-api.polymarket.com/events?active=true&closed=false&order=volume_24hr&ascending=false&limit=18'
-
-type MarketFeedResponse = {
-  markets?: Market[]
-}
+  'https://gamma-api.polymarket.com/events?active=true&closed=false&order=volume_24hr&ascending=false&limit=24'
 
 function parseMaybeArray(value: unknown): string[] {
   if (Array.isArray(value)) {
@@ -93,6 +88,34 @@ function statusFor(endDate: string): Market['status'] {
   return 'Live'
 }
 
+function fallbackMarket(): Market {
+  const price = 0.28
+
+  return {
+    id: 'arc-testnet-activity',
+    title: 'Will Arc testnet clear 1M daily transactions before May 25?',
+    category: 'Arc',
+    source: 'Scout fallback',
+    tab: 'Arc',
+    status: 'Ending Soon',
+    description:
+      'A fallback Arc market used when the live Polymarket scout cannot reach the public feed.',
+    price,
+    fairPrice: buildFairPrice('Arc testnet activity', price),
+    volume24h: 184000,
+    liquidity: 76000,
+    endDate: '2026-05-25T05:00:00.000Z',
+    venue: 'Arc testnet',
+    participants: ['ARC', 'CLI', 'RPC', 'USDC', '+18 more'],
+    thumbnail: 'A',
+    tone: 'mint',
+    thesis:
+      'Hackathon usage and CLI traffic create a path to a short activity spike, but the deadline window is narrow.',
+    catalysts: ['Agora builder traffic', 'RPC key issuance', 'Public demo deadlines'],
+    risks: ['No public dashboard', 'Traffic below threshold', 'Submission slippage'],
+  }
+}
+
 function normalizeGammaEvent(event: GammaEvent): Market | null {
   const market = event.markets?.find((item) => item.active !== false && item.closed !== true)
   if (!market) return null
@@ -143,39 +166,45 @@ function normalizeGammaEvent(event: GammaEvent): Market | null {
     thumbnail: thumbnailFor(title),
     tone: toneFor(title),
     thesis:
-      'The agent detects a measurable gap between market-implied probability and a blended estimate from activity, liquidity, deadline pressure, and signal momentum.',
-    catalysts: ['Polymarket volume shift', 'Outcome price drift', 'Deadline compression'],
+      'The analyst is waiting on the buyer-agent report request before revealing the full reasoning packet.',
+    catalysts: [
+      'Polymarket volume shift',
+      'Outcome price drift',
+      `${Math.round(hashFloat(title) * 100)}% source-priority score`,
+    ],
     risks: ['Thin order book', 'Ambiguous resolution text', 'Late news reversal'],
   }
 }
 
-export async function fetchGammaMarkets(signal: AbortSignal) {
-  try {
-    const response = await fetch('/api/markets', { signal })
-
-    if (response.ok) {
-      const data = (await response.json()) as MarketFeedResponse
-
-      if (data.markets && data.markets.length >= 3) {
-        return data.markets
-      }
-    }
-  } catch {
-    // Browser fallback below keeps the frontend useful while the local API is offline.
-  }
-
-  const response = await fetch(GAMMA_EVENTS_URL, { signal })
+export async function runScoutAgent(): Promise<{ markets: Market[]; run: AgentRun }> {
+  const response = await fetch(GAMMA_EVENTS_URL)
 
   if (!response.ok) {
     throw new Error(`Polymarket returned ${response.status}`)
   }
 
   const data = (await response.json()) as GammaEvent[]
-  const normalized = data.map(normalizeGammaEvent).filter(Boolean) as Market[]
+  const markets = data.map(normalizeGammaEvent).filter(Boolean) as Market[]
 
-  if (normalized.length < 3) {
-    return null
+  if (markets.length < 3) {
+    return {
+      markets: [fallbackMarket()],
+      run: {
+        agent: 'Scout Agent',
+        status: 'simulated',
+        summary: 'Polymarket returned too few usable markets, so Scout served the Arc fallback market.',
+        artifact: 'fallback:arc-testnet-activity',
+      },
+    }
   }
 
-  return [...normalized.slice(0, 7), ...seedMarkets.slice(0, 2)]
+  return {
+    markets: markets.slice(0, 18),
+    run: {
+      agent: 'Scout Agent',
+      status: 'live',
+      summary: `Ranked ${markets.length} active Polymarket markets by liquidity, volume, and deadline pressure.`,
+      artifact: GAMMA_EVENTS_URL,
+    },
+  }
 }
