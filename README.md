@@ -107,7 +107,7 @@ The Vite dev server proxies `/api` to `http://127.0.0.1:8787`.
 
 ## Circle x402 Mode
 
-Trench runs without secrets in local simulation mode. To enable the real Circle Gateway x402 path, set these environment variables before starting the API:
+Trench runs without secrets in local simulation mode. To enable the real Circle Gateway x402 path, fill `.env` or `.env.local` before starting the API:
 
 ```bash
 CIRCLE_SELLER_ADDRESS=0x...
@@ -118,6 +118,15 @@ ARC_WRITER_PRIVATE_KEY=0x...
 ```
 
 `ARC_RPC_URL` is optional for the SDK, but useful when using a Canteen Arc RPC. `ARC_WRITER_PRIVATE_KEY` should be a testnet-only key. Never commit `.env` files, private keys, or token-bearing RPC URLs.
+
+Check and fund the x402 buyer agent Gateway balance:
+
+```bash
+npm run gateway:balances
+npm run gateway:deposit 1.00
+```
+
+Before depositing, request Arc Testnet USDC for the buyer wallet from the Circle Faucet. The same testnet USDC is used for Arc gas and Gateway-backed x402 payments.
 
 ## Current Status
 
