@@ -2,10 +2,15 @@ import { GatewayClient } from '@circle-fin/x402-batching/client'
 import { createGatewayMiddleware } from '@circle-fin/x402-batching/server'
 import express, { type NextFunction, type Request, type RequestHandler, type Response } from 'express'
 import { runAnalystAgent } from './agents/analystAgent.js'
-import { queueArcProof, requestLockedReport, settleX402Challenge } from './agents/buyerAgent.js'
+import { publishArcProof } from './agents/arcProofAgent.js'
+import { requestLockedReport, settleX402Challenge } from './agents/buyerAgent.js'
 import { runScoutAgent } from './agents/scoutAgent.js'
+import { arcWriterConfigured } from './chain/signalRegistryWriter.js'
+import { loadLocalEnv } from './lib/env.js'
 import { getReport, saveReport } from './storage/reportStore.js'
 import type { AgentReport, Market } from './types.js'
+
+loadLocalEnv()
 
 const PORT = Number(process.env.PORT || 8787)
 const SELLER_ADDRESS = process.env.CIRCLE_SELLER_ADDRESS
@@ -145,6 +150,7 @@ app.get('/api/health', (_request, response) => {
     x402: {
       sellerConfigured: gatewayEnabled(),
       buyerConfigured: buyerEnabled(),
+      arcWriterConfigured: arcWriterConfigured(),
       facilitatorUrl: FACILITATOR_URL,
       network: 'arcTestnet',
     },
@@ -236,7 +242,7 @@ app.post(
       return
     }
 
-    response.json({ report: saveReport(queueArcProof(result.report)) })
+    response.json({ report: saveReport(await publishArcProof(result.report)) })
   }),
 )
 

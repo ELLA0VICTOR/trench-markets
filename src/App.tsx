@@ -199,10 +199,10 @@ function App() {
       const report = await publishReportProof(selectedMarket.id, reportHash)
       setAgentReport(report)
       setReportState('ready')
+      setPaymentState('published')
     } catch {
       setReportState('offline')
     }
-    setPaymentState('published')
   }
 
   return (

@@ -1,4 +1,3 @@
-import { proofIdFor } from '../lib/math.js'
 import type { AgentReport } from '../types.js'
 
 export function requestLockedReport(report: AgentReport) {
@@ -38,29 +37,6 @@ export function settleX402Challenge(report: AgentReport, settlement?: Settlement
           ? `Settled the x402 challenge through Circle Gateway on ${settlement?.network}.`
           : 'Attached a local payment receipt. This becomes a real Circle x402 retry once credentials are configured.',
         artifact: settlement?.transaction || report.challenge.reportHash,
-      },
-    ],
-  }
-}
-
-export function queueArcProof(report: AgentReport) {
-  const proofId = proofIdFor(report.marketId, report.reportHash)
-
-  return {
-    ...report,
-    locked: false,
-    proof: {
-      status: 'queued' as const,
-      proofId,
-    },
-    runs: [
-      ...report.runs,
-      {
-        agent: 'Arc Proof Agent' as const,
-        status: 'queued' as const,
-        summary:
-          'Queued report hash and signal metadata for the Arc writer. No fake transaction hash is emitted.',
-        artifact: proofId,
       },
     ],
   }

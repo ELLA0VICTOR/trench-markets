@@ -91,5 +91,5 @@ export function txHashFor(market: Market) {
 }
 
 export function reportHashFor(market: Market) {
-  return txHashFor({ ...market, id: `report-${market.id}` }).slice(0, 42)
+  return txHashFor({ ...market, id: `report-${market.id}` })
 }

@@ -51,7 +51,7 @@ export function hashHex(seed: string, bytes = 32) {
 }
 
 export function reportHashFor(market: Market) {
-  return hashHex(`report:${market.id}:${market.title}:${market.fairPrice}`, 20)
+  return hashHex(`report:${market.id}:${market.title}:${market.fairPrice}`, 32)
 }
 
 export function proofIdFor(marketId: string, reportHash: string) {

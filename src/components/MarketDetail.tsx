@@ -239,9 +239,21 @@ export function MarketDetail({
               <dd>{reportHash}</dd>
             </div>
             <div>
-              <dt>Tx hash</dt>
+              <dt>{agentReport?.proof?.txHash ? 'Tx hash' : 'Proof status'}</dt>
               <dd>{paymentState === 'published' ? proofLabel : 'not published'}</dd>
             </div>
+            {agentReport?.proof?.contractAddress ? (
+              <div>
+                <dt>Contract</dt>
+                <dd>{agentReport.proof.contractAddress}</dd>
+              </div>
+            ) : null}
+            {agentReport?.proof?.blockNumber ? (
+              <div>
+                <dt>Block</dt>
+                <dd>{agentReport.proof.blockNumber}</dd>
+              </div>
+            ) : null}
           </dl>
         </div>
       </aside>

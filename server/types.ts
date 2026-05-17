@@ -74,6 +74,8 @@ export type AgentReport = {
     status: 'not_published' | 'queued' | 'published'
     proofId?: string
     txHash?: string
+    contractAddress?: string
+    blockNumber?: string
   }
 }
 
