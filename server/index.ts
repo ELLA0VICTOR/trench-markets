@@ -1,5 +1,5 @@
 import { GatewayClient } from '@circle-fin/x402-batching/client'
-import { createGatewayMiddleware } from '@circle-fin/x402-batching/server'
+import { BatchFacilitatorClient } from '@circle-fin/x402-batching/server'
 import express, { type NextFunction, type Request, type RequestHandler, type Response } from 'express'
 import { runAnalystAgent } from './agents/analystAgent.js'
 import { publishArcProof } from './agents/arcProofAgent.js'
@@ -18,6 +18,11 @@ const BUYER_PRIVATE_KEY = process.env.CIRCLE_BUYER_PRIVATE_KEY
 const ARC_RPC_URL = process.env.ARC_RPC_URL
 const ARC_TESTNET_CAIP2 = 'eip155:5042002'
 const FACILITATOR_URL = 'https://gateway-api-testnet.circle.com'
+const ARC_USDC_ADDRESS = '0x3600000000000000000000000000000000000000'
+const ARC_GATEWAY_WALLET_ADDRESS = '0x0077777d7EBA4688BDeF3E311b846F25870A19B9'
+const GATEWAY_BATCHING_NAME = 'GatewayWalletBatched'
+const GATEWAY_BATCHING_VERSION = '1'
+const GATEWAY_AUTH_VALIDITY_WINDOW_SECONDS = 7 * 24 * 60 * 60 + 100
 
 type MarketBody = {
   market?: unknown
@@ -36,6 +41,36 @@ type PaidRequest = Request & {
     network: string
     transaction?: string
   }
+}
+
+type GatewayPaymentRequirements = {
+  scheme: 'exact'
+  network: typeof ARC_TESTNET_CAIP2
+  asset: string
+  amount: string
+  payTo: string
+  maxTimeoutSeconds: number
+  extra: {
+    name: typeof GATEWAY_BATCHING_NAME
+    version: typeof GATEWAY_BATCHING_VERSION
+    verifyingContract: string
+  }
+}
+
+type GatewayAcceptedRequirements = Partial<GatewayPaymentRequirements> & Record<string, unknown>
+
+type GatewayPaymentResource = {
+  url: string
+  description: string
+  mimeType: string
+}
+
+type GatewayPaymentPayload = {
+  x402Version: number
+  resource?: GatewayPaymentResource
+  accepted?: GatewayAcceptedRequirements
+  payload: Record<string, unknown>
+  extensions?: Record<string, unknown>
 }
 
 function isMarket(value: unknown): value is Market {
@@ -70,6 +105,40 @@ function getExistingReport(body: ReportBody) {
   return { report }
 }
 
+function reportForClient(report: AgentReport) {
+  if (!report.locked) {
+    return report
+  }
+
+  return {
+    ...report,
+    signal: 'PASS' as const,
+    fairPrice: report.marketPrice,
+    confidence: 0,
+    edgeBps: 0,
+    thesis: 'Locked until the buyer satisfies the x402 payment challenge.',
+    catalysts: [],
+    risks: [],
+    sources: [],
+    runs: report.runs.map((run) => ({
+      ...run,
+      summary:
+        run.agent === 'Buyer Agent'
+          ? run.summary
+          : 'Generated a locked report artifact. Reasoning unlocks after payment.',
+      artifact: run.agent === 'Buyer Agent' ? run.artifact : report.reportHash,
+    })),
+    challenge: {
+      ...report.challenge,
+      pricing: {
+        ...report.challenge.pricing,
+        score: 0,
+        rationale: [],
+      },
+    },
+  } satisfies AgentReport
+}
+
 function gatewayEnabled() {
   return Boolean(SELLER_ADDRESS)
 }
@@ -86,6 +155,68 @@ function reportPriceForGateway(report: AgentReport) {
   }
 
   return `$${amount.toFixed(2)}`
+}
+
+function atomicUsdcFromPrice(price: string) {
+  const normalized = price.trim().replace(/^\$/, '')
+
+  if (!/^\d+(\.\d{1,6})?$/.test(normalized)) {
+    throw new Error(`Invalid Gateway price: ${price}`)
+  }
+
+  const [whole, fraction = ''] = normalized.split('.')
+  const atomic = BigInt(whole) * 1_000_000n + BigInt(fraction.padEnd(6, '0'))
+
+  return atomic.toString()
+}
+
+function arcPaymentRequirements(report: AgentReport): GatewayPaymentRequirements {
+  if (!SELLER_ADDRESS) {
+    throw new Error('Circle x402 seller is not configured.')
+  }
+
+  return {
+    scheme: 'exact',
+    network: ARC_TESTNET_CAIP2,
+    asset: ARC_USDC_ADDRESS,
+    amount: atomicUsdcFromPrice(reportPriceForGateway(report)),
+    payTo: SELLER_ADDRESS,
+    maxTimeoutSeconds: GATEWAY_AUTH_VALIDITY_WINDOW_SECONDS,
+    extra: {
+      name: GATEWAY_BATCHING_NAME,
+      version: GATEWAY_BATCHING_VERSION,
+      verifyingContract: ARC_GATEWAY_WALLET_ADDRESS,
+    },
+  }
+}
+
+function sameAddress(left?: string, right?: string) {
+  return Boolean(left && right && left.toLowerCase() === right.toLowerCase())
+}
+
+function acceptedPaymentMatches(
+  accepted: GatewayPaymentPayload['accepted'],
+  expected: GatewayPaymentRequirements,
+) {
+  return (
+    accepted?.scheme === expected.scheme &&
+    accepted.network === expected.network &&
+    sameAddress(accepted.asset, expected.asset) &&
+    accepted.amount === expected.amount &&
+    sameAddress(accepted.payTo, expected.payTo) &&
+    accepted.maxTimeoutSeconds === expected.maxTimeoutSeconds &&
+    accepted.extra?.name === expected.extra.name &&
+    accepted.extra.version === expected.extra.version &&
+    sameAddress(accepted.extra.verifyingContract, expected.extra.verifyingContract)
+  )
+}
+
+function encodePaymentHeader(payload: unknown) {
+  return Buffer.from(JSON.stringify(payload)).toString('base64')
+}
+
+function decodePaymentHeader(header: string) {
+  return JSON.parse(Buffer.from(header, 'base64').toString('utf-8')) as GatewayPaymentPayload
 }
 
 async function payProtectedReport(report: AgentReport) {
@@ -135,33 +266,7 @@ app.use((request, response, next) => {
 
 app.use(express.json({ limit: '1mb' }))
 
-const gateway = SELLER_ADDRESS
-  ? createGatewayMiddleware({
-      sellerAddress: SELLER_ADDRESS,
-      networks: [ARC_TESTNET_CAIP2],
-      facilitatorUrl: FACILITATOR_URL,
-      description: 'Trench agent report unlock',
-    })
-  : null
-
-const unlockReportHandler: RequestHandler = (request: PaidRequest, response) => {
-  const result = getExistingReport(request.body as ReportBody)
-
-  if ('error' in result) {
-    response.status(404).json({ error: result.error })
-    return
-  }
-
-  const paidReport = saveReport(
-    settleX402Challenge(result.report, {
-      transaction: request.payment?.transaction,
-      payer: request.payment?.payer,
-      network: request.payment?.network,
-    }),
-  )
-
-  response.json({ report: paidReport, payment: request.payment || null })
-}
+const facilitator = SELLER_ADDRESS ? new BatchFacilitatorClient({ url: FACILITATOR_URL }) : null
 
 const sponsoredPaymentHandler: RequestHandler = asyncRoute(async (request, response) => {
   const result = getExistingReport(request.body as ReportBody)
@@ -171,7 +276,7 @@ const sponsoredPaymentHandler: RequestHandler = asyncRoute(async (request, respo
     return
   }
 
-  if (gateway && buyerEnabled()) {
+  if (facilitator && buyerEnabled()) {
     const paid = await payProtectedReport(result.report)
     response.json({
       report: saveReport(paid?.data.report || result.report),
@@ -223,7 +328,7 @@ app.post(
     }
 
     const report = saveReport(runAnalystAgent(body.market))
-    response.json({ report })
+    response.json({ report: reportForClient(report) })
   }),
 )
 
@@ -239,22 +344,100 @@ app.post(
 
     const existing = getReport(body.market.id) || runAnalystAgent(body.market)
     const report = saveReport(requestLockedReport(existing))
-    response.json({ report })
+    response.json({ report: reportForClient(report) })
   }),
 )
 
-if (gateway) {
-  app.post('/api/reports/unlock', (request, response, next) => {
-    const result = getExistingReport(request.body as ReportBody)
+if (facilitator) {
+  app.post(
+    '/api/reports/unlock',
+    asyncRoute(async (request, response) => {
+      const paidRequest = request as PaidRequest
+      const result = getExistingReport(request.body as ReportBody)
 
-    if ('error' in result) {
-      response.status(404).json({ error: result.error })
-      return
-    }
+      if ('error' in result) {
+        response.status(404).json({ error: result.error })
+        return
+      }
 
-    const requirePayment = gateway.require(reportPriceForGateway(result.report))
-    Promise.resolve(requirePayment(request, response, next)).catch(next)
-  }, unlockReportHandler)
+      const requirements = arcPaymentRequirements(result.report)
+      const paymentHeader = request.headers['payment-signature']
+
+      if (typeof paymentHeader !== 'string') {
+        response
+          .status(402)
+          .setHeader(
+            'PAYMENT-REQUIRED',
+            encodePaymentHeader({
+              x402Version: 2,
+              resource: {
+                url: request.url || '/api/reports/unlock',
+                description: 'Trench agent report unlock',
+                mimeType: 'application/json',
+              },
+              accepts: [requirements],
+            }),
+          )
+          .json({})
+        return
+      }
+
+      const paymentPayload = decodePaymentHeader(paymentHeader)
+
+      if (!paymentPayload.payload || !acceptedPaymentMatches(paymentPayload.accepted, requirements)) {
+        response.status(400).json({ error: 'Payment requirements do not match the report quote.' })
+        return
+      }
+
+      const verifyResult = await facilitator.verify(paymentPayload, requirements)
+
+      if (!verifyResult.isValid) {
+        response.status(402).json({
+          error: 'Payment verification failed',
+          reason: verifyResult.invalidReason,
+        })
+        return
+      }
+
+      const settleResult = await facilitator.settle(paymentPayload, requirements)
+
+      if (!settleResult.success) {
+        response.status(402).json({
+          error: 'Payment settlement failed',
+          reason: settleResult.errorReason,
+        })
+        return
+      }
+
+      paidRequest.payment = {
+        verified: true,
+        payer: settleResult.payer ?? verifyResult.payer ?? '',
+        amount: requirements.amount,
+        network: requirements.network,
+        transaction: settleResult.transaction,
+      }
+
+      response.setHeader(
+        'PAYMENT-RESPONSE',
+        encodePaymentHeader({
+          success: true,
+          transaction: settleResult.transaction,
+          network: requirements.network,
+          payer: settleResult.payer ?? verifyResult.payer ?? '',
+        }),
+      )
+
+      const paidReport = saveReport(
+        settleX402Challenge(result.report, {
+          transaction: paidRequest.payment.transaction,
+          payer: paidRequest.payment.payer,
+          network: paidRequest.payment.network,
+        }),
+      )
+
+      response.json({ report: paidReport, payment: paidRequest.payment })
+    }),
+  )
 } else {
   app.post('/api/reports/unlock', (_request, response) => {
     response.status(402).json({
@@ -277,6 +460,11 @@ app.post(
       return
     }
 
+    if (result.report.locked) {
+      response.status(402).json({ error: 'Unlock the report before publishing an Arc proof.' })
+      return
+    }
+
     response.json({ report: saveReport(await publishArcProof(result.report)) })
   }),
 )
@@ -289,7 +477,7 @@ app.get('/api/reports/:marketId', (request, response) => {
     return
   }
 
-  response.json({ report })
+  response.json({ report: reportForClient(report) })
 })
 
 app.use((error: unknown, _request: Request, response: Response, next: NextFunction) => {

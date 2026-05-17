@@ -10,6 +10,8 @@ type AnalysisPanelProps = {
 
 export function AnalysisPanel({ market, paymentState, signal }: AnalysisPanelProps) {
   const confidence = confidenceFor(market.price, market.fairPrice, market.liquidity)
+  const unlocked = paymentState === 'paid' || paymentState === 'published'
+  const lockedLabel = paymentState === 'settling' ? 'settling' : 'locked'
 
   return (
     <section className="analysis-panel" id="agents">
@@ -18,8 +20,8 @@ export function AnalysisPanel({ market, paymentState, signal }: AnalysisPanelPro
           <span>02</span>
           <h2>Analyst Signal</h2>
         </div>
-        <div className={`signal-badge ${signal.toLowerCase().replace(' ', '-')}`}>
-          {signal}
+        <div className={`signal-badge ${unlocked ? signal.toLowerCase().replace(' ', '-') : 'locked'}`}>
+          {unlocked ? signal : lockedLabel}
         </div>
       </div>
 
@@ -33,15 +35,15 @@ export function AnalysisPanel({ market, paymentState, signal }: AnalysisPanelPro
           </div>
           <div>
             <span>Agent fair</span>
-            <strong>{formatPercent(market.fairPrice)}</strong>
+            <strong>{unlocked ? formatPercent(market.fairPrice) : lockedLabel}</strong>
           </div>
           <div>
             <span>Edge</span>
-            <strong>{edgeLabel(market.price, market.fairPrice)}</strong>
+            <strong>{unlocked ? edgeLabel(market.price, market.fairPrice) : lockedLabel}</strong>
           </div>
           <div>
             <span>Confidence</span>
-            <strong>{formatPercent(confidence)}</strong>
+            <strong>{unlocked ? formatPercent(confidence) : lockedLabel}</strong>
           </div>
         </div>
       </div>
@@ -51,7 +53,7 @@ export function AnalysisPanel({ market, paymentState, signal }: AnalysisPanelPro
         <span className="band-tick tick-50" />
         <span className="band-tick tick-75" />
         <div className="market-marker" style={{ left: `${market.price * 100}%` }} />
-        <div className="fair-marker" style={{ left: `${market.fairPrice * 100}%` }} />
+        {unlocked ? <div className="fair-marker" style={{ left: `${market.fairPrice * 100}%` }} /> : null}
       </div>
       <div className="band-labels">
         <span>0%</span>
@@ -63,7 +65,7 @@ export function AnalysisPanel({ market, paymentState, signal }: AnalysisPanelPro
       <div className="thesis-block">
         <h4>Unlocked brief</h4>
         <p>
-          {paymentState === 'paid' || paymentState === 'published'
+          {unlocked
             ? market.thesis
             : 'Brief locked. Buyer agent must settle the x402 request before receiving the full rationale packet.'}
         </p>
@@ -73,7 +75,7 @@ export function AnalysisPanel({ market, paymentState, signal }: AnalysisPanelPro
         <div>
           <h4>Catalysts</h4>
           <ul>
-            {market.catalysts.map((item) => (
+            {(unlocked ? market.catalysts : ['Locked inside the paid report.']).map((item) => (
               <li key={item}>{item}</li>
             ))}
           </ul>
@@ -81,7 +83,7 @@ export function AnalysisPanel({ market, paymentState, signal }: AnalysisPanelPro
         <div>
           <h4>Risks</h4>
           <ul>
-            {market.risks.map((item) => (
+            {(unlocked ? market.risks : ['Locked inside the paid report.']).map((item) => (
               <li key={item}>{item}</li>
             ))}
           </ul>

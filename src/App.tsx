@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import type { FormEvent } from 'react'
 import { CreateMarketPanel } from './components/CreateMarketPanel'
 import { Footer } from './components/Footer'
+import { HowItWorksModal } from './components/HowItWorksModal'
 import { MarketBoard } from './components/MarketBoard'
 import { MarketDetail } from './components/MarketDetail'
 import { MarketTabs } from './components/MarketTabs'
@@ -15,11 +16,21 @@ import {
   settleReportFromBuyerWallet,
   settleReportPayment,
 } from './services/agents'
+import {
+  type BrowserWalletSession,
+  connectBrowserWallet,
+  resetBrowserWallet,
+  restoreBrowserWalletSession,
+  switchBrowserWallet,
+  validateStoredBrowserWalletSession,
+  watchBrowserWalletSession,
+} from './services/x402BuyerWallet'
 import { fetchGammaMarkets } from './services/gamma'
 import type { FeedState, Market, MarketTab, PaymentState } from './types/market'
 import type { AgentReport } from './types/report'
 
 type PaymentMode = 'buyer' | 'sponsored'
+type WalletStatus = 'idle' | 'connecting' | 'connected'
 
 function matchesTab(market: Market, activeTab: MarketTab) {
   if (activeTab === 'New') return true
@@ -53,6 +64,97 @@ function App() {
   const [reportState, setReportState] = useState<'idle' | 'loading' | 'ready' | 'offline'>('idle')
   const [paymentMode, setPaymentMode] = useState<PaymentMode>('buyer')
   const [paymentError, setPaymentError] = useState<string>()
+  const [walletAddress, setWalletAddress] = useState<string>()
+  const [walletName, setWalletName] = useState<string>()
+  const [walletStatus, setWalletStatus] = useState<WalletStatus>('idle')
+  const [walletMenuOpen, setWalletMenuOpen] = useState(false)
+  const [howItWorksOpen, setHowItWorksOpen] = useState(false)
+
+  useEffect(() => {
+    const restored = restoreBrowserWalletSession()
+    let mounted = true
+    let releaseWalletWatch: (() => void) | undefined
+
+    function showSession(session: BrowserWalletSession) {
+      setWalletAddress(session.address)
+      setWalletName(session.walletName)
+      setWalletStatus('connected')
+    }
+
+    function clearSession() {
+      setWalletAddress(undefined)
+      setWalletName(undefined)
+      setWalletStatus('idle')
+      setWalletMenuOpen(false)
+    }
+
+    if (restored) {
+      showSession(restored)
+    }
+
+    validateStoredBrowserWalletSession()
+      .then((session) => {
+        if (!mounted) return
+
+        if (session) {
+          showSession(session)
+          return
+        }
+
+        clearSession()
+      })
+      .catch(() => {
+        if (mounted && !restored) {
+          clearSession()
+        }
+      })
+
+    watchBrowserWalletSession((session) => {
+      if (!mounted) return
+
+      if (session) {
+        showSession(session)
+        return
+      }
+
+      clearSession()
+    }).then((release) => {
+      releaseWalletWatch = release
+    })
+
+    return () => {
+      mounted = false
+      releaseWalletWatch?.()
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!walletMenuOpen) {
+      return
+    }
+
+    function closeOnOutsidePress(event: PointerEvent) {
+      if (event.target instanceof Element && event.target.closest('.topbar-actions')) {
+        return
+      }
+
+      setWalletMenuOpen(false)
+    }
+
+    function closeOnEscape(event: KeyboardEvent) {
+      if (event.key === 'Escape') {
+        setWalletMenuOpen(false)
+      }
+    }
+
+    window.addEventListener('pointerdown', closeOnOutsidePress)
+    window.addEventListener('keydown', closeOnEscape)
+
+    return () => {
+      window.removeEventListener('pointerdown', closeOnOutsidePress)
+      window.removeEventListener('keydown', closeOnEscape)
+    }
+  }, [walletMenuOpen])
 
   useEffect(() => {
     const controller = new AbortController()
@@ -190,6 +292,55 @@ function App() {
     }
   }
 
+  async function connectWallet() {
+    setWalletStatus('connecting')
+    try {
+      const wallet = await connectBrowserWallet()
+      setWalletAddress(wallet.address)
+      setWalletName(wallet.walletName)
+      setWalletStatus('connected')
+      setWalletMenuOpen(false)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Wallet connection failed.'
+      setWalletStatus(walletAddress ? 'connected' : 'idle')
+      window.alert(message)
+    }
+  }
+
+  async function switchWallet() {
+    setWalletStatus('connecting')
+    try {
+      const wallet = await switchBrowserWallet()
+      setWalletAddress(wallet.address)
+      setWalletName(wallet.walletName)
+      setWalletStatus('connected')
+      setWalletMenuOpen(false)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Wallet switch failed.'
+      setWalletStatus(walletAddress ? 'connected' : 'idle')
+      window.alert(message)
+    }
+  }
+
+  async function copyWalletAddress() {
+    if (!walletAddress) return
+
+    try {
+      await navigator.clipboard.writeText(walletAddress)
+      setWalletMenuOpen(false)
+    } catch {
+      window.alert(walletAddress)
+    }
+  }
+
+  function disconnectWallet() {
+    resetBrowserWallet()
+    setWalletAddress(undefined)
+    setWalletName(undefined)
+    setWalletStatus('idle')
+    setWalletMenuOpen(false)
+  }
+
   async function settleReport(mode: PaymentMode) {
     setPaymentMode(mode)
     setPaymentState('settling')
@@ -199,6 +350,14 @@ function App() {
         mode === 'buyer'
           ? await settleReportFromBuyerWallet(selectedMarket.id, reportHash)
           : await settleReportPayment(selectedMarket.id, reportHash)
+      const wallet = restoreBrowserWalletSession()
+
+      if (wallet) {
+        setWalletAddress(wallet.address)
+        setWalletName(wallet.walletName)
+        setWalletStatus('connected')
+      }
+
       setAgentReport(report)
       setPaymentState('paid')
       setReportState('ready')
@@ -222,9 +381,23 @@ function App() {
 
   return (
     <div className="app-shell">
+      <HowItWorksModal open={howItWorksOpen} onClose={() => setHowItWorksOpen(false)} />
       <Topbar
         query={query}
+        walletAddress={walletAddress}
+        walletName={walletName}
+        walletStatus={walletStatus}
+        walletMenuOpen={walletMenuOpen}
         onQueryChange={setQuery}
+        onWalletConnect={connectWallet}
+        onWalletMenuToggle={() => setWalletMenuOpen((open) => !open)}
+        onWalletCopy={copyWalletAddress}
+        onWalletSwitch={switchWallet}
+        onWalletDisconnect={disconnectWallet}
+        onHowItWorks={() => {
+          setWalletMenuOpen(false)
+          setHowItWorksOpen(true)
+        }}
       />
 
       {detailMarketId ? (

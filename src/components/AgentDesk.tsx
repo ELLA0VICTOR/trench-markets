@@ -47,13 +47,14 @@ export function AgentDesk({
 }: AgentDeskProps) {
   const confidence = confidenceFor(market.price, market.fairPrice, market.liquidity)
   const unlocked = paymentState === 'paid' || paymentState === 'published'
+  const lockedLabel = paymentState === 'settling' ? 'settling' : 'locked'
 
   return (
     <aside className="agent-desk" aria-label="Agent market desk">
       <div className="desk-card desk-card-main">
         <div className="desk-card-heading">
           <span>Agent signal</span>
-          <strong>{signal}</strong>
+          <strong>{unlocked ? signal : lockedLabel}</strong>
         </div>
         <h2>{market.title}</h2>
         <div className="desk-metrics">
@@ -63,15 +64,15 @@ export function AgentDesk({
           </div>
           <div>
             <span>Agent fair</span>
-            <strong>{formatPercent(market.fairPrice)}</strong>
+            <strong>{unlocked ? formatPercent(market.fairPrice) : lockedLabel}</strong>
           </div>
           <div>
             <span>Edge</span>
-            <strong>{edgeLabel(market.price, market.fairPrice)}</strong>
+            <strong>{unlocked ? edgeLabel(market.price, market.fairPrice) : lockedLabel}</strong>
           </div>
           <div>
             <span>Confidence</span>
-            <strong>{formatPercent(confidence)}</strong>
+            <strong>{unlocked ? formatPercent(confidence) : lockedLabel}</strong>
           </div>
         </div>
       </div>
@@ -124,11 +125,11 @@ export function AgentDesk({
         <div className="mini-list">
           <div>
             <span>Catalysts</span>
-            <p>{market.catalysts.join(' / ')}</p>
+            <p>{unlocked ? market.catalysts.join(' / ') : 'Locked inside the paid report.'}</p>
           </div>
           <div>
             <span>Risks</span>
-            <p>{market.risks.join(' / ')}</p>
+            <p>{unlocked ? market.risks.join(' / ') : 'Locked inside the paid report.'}</p>
           </div>
         </div>
       </div>

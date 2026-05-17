@@ -102,6 +102,7 @@ export function MarketDetail({
   const runs = agentReport?.runs || []
   const reportPriceLabel = challenge ? `$${challenge.amount} ${challenge.asset}` : reportPrice
   const pricingRationale = challenge?.pricing.rationale.join(' / ')
+  const lockedLabel = paymentState === 'settling' ? 'settling' : 'locked'
 
   return (
     <main className="detail-layout">
@@ -133,7 +134,7 @@ export function MarketDetail({
           </div>
           <div>
             <span>Agent fair</span>
-            <strong>{formatPercent(fairPrice)}</strong>
+            <strong>{unlocked ? formatPercent(fairPrice) : lockedLabel}</strong>
           </div>
           <div>
             <span>Ends</span>
@@ -144,7 +145,7 @@ export function MarketDetail({
         <section className="detail-section">
           <div className="detail-section-heading">
             <h2>More about this market</h2>
-            <span>{edgeLabel(market.price, market.fairPrice)} edge</span>
+            <span>{unlocked ? `${edgeLabel(market.price, market.fairPrice)} edge` : 'agent edge locked'}</span>
           </div>
           <p>
             {market.description ||
@@ -165,14 +166,14 @@ export function MarketDetail({
           <div className="report-grid">
             <div>
               <span>Catalysts</span>
-              <p>{catalysts.join(' / ')}</p>
+              <p>{unlocked ? catalysts.join(' / ') : 'Locked inside the paid report.'}</p>
             </div>
             <div>
               <span>Risks</span>
-              <p>{risks.join(' / ')}</p>
+              <p>{unlocked ? risks.join(' / ') : 'Locked inside the paid report.'}</p>
             </div>
           </div>
-          {runs.length > 0 ? (
+          {unlocked && runs.length > 0 ? (
             <div className="agent-run-list" aria-label="Agent runs">
               {runs.map((run, index) => (
                 <div key={`${run.agent}-${index}`}>
@@ -205,11 +206,11 @@ export function MarketDetail({
 
           <div className="signal-row">
             <span>Signal</span>
-            <strong>{signal}</strong>
+            <strong>{unlocked ? signal : lockedLabel}</strong>
           </div>
           <div className="signal-row">
             <span>Confidence</span>
-            <strong>{formatPercent(confidence)}</strong>
+            <strong>{unlocked ? formatPercent(confidence) : lockedLabel}</strong>
           </div>
 
           <div className="relay-stack compact">
@@ -233,7 +234,7 @@ export function MarketDetail({
             <div className="pricing-note">
               <span>Agent price</span>
               <strong>Max ${challenge.pricing.maxAmount}</strong>
-              <p>{pricingRationale}</p>
+              <p>{unlocked ? pricingRationale : 'Pricing rationale unlocks with the report.'}</p>
             </div>
           ) : null}
 

@@ -171,6 +171,7 @@ a {
 }
 
 .topbar-actions {
+  position: relative;
   display: flex;
   justify-content: flex-end;
   align-items: center;
@@ -253,6 +254,310 @@ a {
 .wallet-button {
   color: var(--accent);
   background: var(--accent-dim);
+}
+
+.wallet-menu {
+  position: absolute;
+  top: calc(100% + 10px);
+  right: 0;
+  z-index: 80;
+  display: grid;
+  width: min(280px, calc(100vw - 28px));
+  border: 1px solid var(--accent-border);
+  background: var(--black);
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.42);
+}
+
+.wallet-menu-heading {
+  display: grid;
+  gap: 4px;
+  padding: 14px;
+  border-bottom: 1px solid var(--rule);
+}
+
+.wallet-menu-heading span {
+  color: var(--g600);
+  font-size: 11px;
+  text-transform: uppercase;
+}
+
+.wallet-menu-heading strong {
+  color: var(--white);
+  font-size: 14px;
+}
+
+.wallet-menu button {
+  min-height: 42px;
+  padding: 0 14px;
+  border: 0;
+  border-bottom: 1px solid var(--rule);
+  color: var(--g100);
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+
+.wallet-menu button:last-child {
+  border-bottom: 0;
+}
+
+.wallet-menu button:hover {
+  color: var(--accent);
+  background: rgba(212, 255, 62, 0.08);
+}
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 120;
+  display: grid;
+  place-items: center;
+  padding: 16px;
+  background: rgba(0, 0, 0, 0.72);
+  backdrop-filter: blur(9px);
+}
+
+.how-modal {
+  position: relative;
+  display: grid;
+  width: min(690px, 100%);
+  max-height: calc(100svh - 28px);
+  overflow: hidden;
+  border: 1px solid var(--accent-border);
+  background: var(--bg);
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.5);
+}
+
+.modal-close {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  z-index: 2;
+  display: grid;
+  width: 38px;
+  height: 38px;
+  place-items: center;
+  border: 1px solid var(--rule);
+  color: var(--g100);
+  background: rgba(0, 0, 0, 0.38);
+  cursor: pointer;
+}
+
+.modal-close:hover {
+  color: var(--accent);
+  border-color: var(--accent-border);
+}
+
+.how-visual {
+  display: grid;
+  grid-template-columns: 0.58fr minmax(260px, 1.32fr) 0.58fr;
+  gap: 16px;
+  height: 306px;
+  padding: 10px 56px 8px;
+  overflow: hidden;
+  border-bottom: 1px solid var(--rule);
+  background: #0d1a15;
+}
+
+.how-side-card,
+.how-market-card {
+  min-width: 0;
+  border: 1px solid var(--rule-strong);
+  background: var(--surface);
+}
+
+.how-side-card {
+  display: grid;
+  align-content: start;
+  height: 100%;
+  padding: 16px 12px;
+  color: var(--g600);
+  font-size: 11px;
+  text-transform: uppercase;
+}
+
+.how-side-card:first-child {
+  transform: translateX(-42px);
+}
+
+.how-side-card:last-child {
+  transform: translateX(42px);
+}
+
+.how-market-card {
+  display: grid;
+  align-content: start;
+  gap: 13px;
+  height: 100%;
+  padding: 15px 16px 14px;
+  box-shadow: 0 0 0 1px rgba(212, 255, 62, 0.08);
+}
+
+.how-card-topline,
+.how-card-metrics {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  color: var(--g300);
+  font-size: 11px;
+}
+
+.how-card-topline span {
+  padding: 4px 8px;
+  color: var(--g100);
+  background: var(--surface-2);
+}
+
+.how-card-topline strong {
+  padding: 4px 8px;
+  color: var(--accent);
+  background: var(--accent-dim);
+}
+
+.how-card-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  color: var(--white);
+  font-weight: 600;
+}
+
+.how-card-brand .brand-mark {
+  width: 42px;
+  height: 42px;
+}
+
+.how-market-card h3 {
+  margin: 0;
+  color: var(--white);
+  font-size: 18px;
+  line-height: 1.15;
+}
+
+.how-token-row {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+
+.how-token {
+  display: grid;
+  width: 30px;
+  height: 30px;
+  margin-right: -7px;
+  place-items: center;
+  border: 1px solid var(--black);
+  color: var(--black);
+  background: var(--accent);
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.how-token:nth-child(2) {
+  background: var(--g50);
+}
+
+.how-token:nth-child(3) {
+  background: #8ff0d2;
+}
+
+.how-token:nth-child(4) {
+  background: #f0c15f;
+}
+
+.how-token-row small {
+  margin-left: auto;
+  color: var(--g400);
+  font-size: 11px;
+}
+
+.how-card-metrics {
+  margin-top: auto;
+  padding-top: 10px;
+  border-top: 1px solid var(--rule);
+}
+
+.how-body {
+  display: grid;
+  gap: 18px;
+  padding: 24px 32px 30px;
+}
+
+.how-progress {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+}
+
+.how-progress > span,
+.how-copy span {
+  color: var(--g600);
+  font-size: 11px;
+  text-transform: uppercase;
+}
+
+.how-dots {
+  display: inline-flex;
+  gap: 8px;
+}
+
+.how-dots i {
+  display: block;
+  width: 34px;
+  height: 2px;
+  background: var(--rule-strong);
+}
+
+.how-dots i.is-active {
+  background: var(--accent);
+}
+
+.how-copy {
+  display: grid;
+  gap: 9px;
+}
+
+.how-copy h2 {
+  margin: 0;
+  color: var(--white);
+  font-size: 26px;
+  line-height: 1.1;
+}
+
+.how-copy p {
+  max-width: 620px;
+  margin: 0;
+  color: var(--g200);
+  font-size: 14px;
+}
+
+.how-actions {
+  display: grid;
+  grid-template-columns: 0.7fr 1fr;
+  gap: 12px;
+}
+
+.how-actions button {
+  min-height: 48px;
+  border: 1px solid var(--accent-border);
+  color: var(--accent);
+  background: var(--accent-dim);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.how-actions button:last-child {
+  color: var(--black);
+  background: var(--accent);
+}
+
+.how-actions button:disabled {
+  cursor: not-allowed;
+  color: rgba(255, 255, 255, 0.32);
+  border-color: var(--rule);
+  background: rgba(255, 255, 255, 0.06);
 }
 
 .market-tabs {
@@ -1447,10 +1752,47 @@ dd {
     grid-template-columns: 1fr 1fr;
   }
 
-  .link-button {
+  .modal-backdrop {
+    padding: 12px;
+  }
+
+  .how-modal {
+    overflow: auto;
+  }
+
+  .how-visual {
+    grid-template-columns: 1fr;
+    height: auto;
+    padding: 14px;
+  }
+
+  .how-side-card {
     display: none;
   }
 
+  .how-market-card h3 {
+    font-size: 18px;
+  }
+
+  .how-body {
+    padding: 22px 18px;
+  }
+
+  .how-copy h2 {
+    font-size: 24px;
+  }
+
+  .how-actions {
+    grid-template-columns: 1fr;
+  }
+
+  .link-button {
+    display: grid;
+    place-items: center;
+    border-color: var(--rule);
+  }
+
+  .wallet-button,
   .create-button {
     grid-column: 1 / -1;
   }
