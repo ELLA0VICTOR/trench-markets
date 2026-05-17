@@ -12,11 +12,14 @@ import {
   analyzeMarket,
   publishReportProof,
   requestLockedReport,
+  settleReportFromBuyerWallet,
   settleReportPayment,
 } from './services/agents'
 import { fetchGammaMarkets } from './services/gamma'
 import type { FeedState, Market, MarketTab, PaymentState } from './types/market'
 import type { AgentReport } from './types/report'
+
+type PaymentMode = 'buyer' | 'sponsored'
 
 function matchesTab(market: Market, activeTab: MarketTab) {
   if (activeTab === 'New') return true
@@ -48,6 +51,8 @@ function App() {
   const [detailMarketId, setDetailMarketId] = useState<string | null>(null)
   const [agentReport, setAgentReport] = useState<AgentReport>()
   const [reportState, setReportState] = useState<'idle' | 'loading' | 'ready' | 'offline'>('idle')
+  const [paymentMode, setPaymentMode] = useState<PaymentMode>('buyer')
+  const [paymentError, setPaymentError] = useState<string>()
 
   useEffect(() => {
     const controller = new AbortController()
@@ -120,6 +125,8 @@ function App() {
     setSelectedId(id)
     setDetailMarketId(id)
     setPaymentState('quote')
+    setPaymentMode('buyer')
+    setPaymentError(undefined)
     setAgentReport(undefined)
     setReportState('loading')
   }
@@ -127,6 +134,7 @@ function App() {
   function handleTabChange(tab: MarketTab) {
     setActiveTab(tab)
     setPaymentState('quote')
+    setPaymentError(undefined)
   }
 
   function handleCustomMarket(event: FormEvent<HTMLFormElement>) {
@@ -144,6 +152,8 @@ function App() {
     setCustomImageUrl(undefined)
     setCreateOpen(false)
     setPaymentState('quote')
+    setPaymentMode('buyer')
+    setPaymentError(undefined)
     setAgentReport(undefined)
     setReportState('loading')
   }
@@ -170,6 +180,7 @@ function App() {
 
   async function requestReport() {
     setPaymentState('required')
+    setPaymentError(undefined)
     try {
       const report = await requestLockedReport(selectedMarket)
       setAgentReport(report)
@@ -179,18 +190,22 @@ function App() {
     }
   }
 
-  async function settleReport() {
+  async function settleReport(mode: PaymentMode) {
+    setPaymentMode(mode)
     setPaymentState('settling')
+    setPaymentError(undefined)
     try {
-      const report = await settleReportPayment(selectedMarket.id, reportHash)
+      const report =
+        mode === 'buyer'
+          ? await settleReportFromBuyerWallet(selectedMarket.id, reportHash)
+          : await settleReportPayment(selectedMarket.id, reportHash)
       setAgentReport(report)
       setPaymentState('paid')
       setReportState('ready')
-    } catch {
-      window.setTimeout(() => {
-        setPaymentState('paid')
-      }, 650)
-      setReportState('offline')
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Payment failed.'
+      setPaymentError(message)
+      setPaymentState('required')
     }
   }
 
@@ -221,8 +236,11 @@ function App() {
           signal={agentReport?.signal || signal}
           reportHash={reportHash}
           proofLabel={proofLabel}
+          paymentMode={paymentMode}
+          paymentError={paymentError}
           onBack={closeDetail}
           onReportRequest={requestReport}
+          onPaymentModeChange={setPaymentMode}
           onSettleReport={settleReport}
           onSignalPublish={publishSignal}
         />

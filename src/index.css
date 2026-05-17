@@ -1189,6 +1189,94 @@ dd {
   font-size: 13px;
 }
 
+.pricing-note {
+  min-width: 0;
+  margin-top: 14px;
+  padding: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(0, 0, 0, 0.16);
+}
+
+.pricing-note span,
+.faucet-row span {
+  color: var(--g600);
+  font-size: 11px;
+  text-transform: uppercase;
+}
+
+.pricing-note strong {
+  display: block;
+  margin-top: 6px;
+  color: var(--accent);
+  font-size: 13px;
+}
+
+.pricing-note p {
+  margin: 8px 0 0;
+  overflow-wrap: anywhere;
+  color: var(--g300);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.payment-mode {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  min-width: 0;
+  margin-top: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.payment-mode button {
+  min-height: 42px;
+  border: 0;
+  color: var(--g400);
+  background: transparent;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.payment-mode button + button {
+  border-left: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.payment-mode button.is-active {
+  color: var(--accent);
+  background: rgba(212, 255, 62, 0.1);
+}
+
+.payment-mode button:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.faucet-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.faucet-row a {
+  min-height: 34px;
+  padding: 8px 12px;
+  border: 1px solid var(--accent-border);
+  color: var(--accent);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.payment-error {
+  margin: 12px 0 0;
+  overflow-wrap: anywhere;
+  color: #ffb4a8;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
 .action-buttons {
   display: grid;
   grid-template-columns: 1fr;

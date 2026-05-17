@@ -1,5 +1,6 @@
 import type { Market } from '../types/market'
 import type { AgentReport } from '../types/report'
+import { payReportFromBuyerWallet } from './x402BuyerWallet'
 
 type ReportResponse = {
   report: AgentReport
@@ -32,7 +33,11 @@ export function requestLockedReport(market: Market) {
 }
 
 export function settleReportPayment(marketId: string, reportHash: string) {
-  return postReport('/api/payments/settle', { marketId, reportHash })
+  return postReport('/api/payments/sponsored', { marketId, reportHash })
+}
+
+export function settleReportFromBuyerWallet(marketId: string, reportHash: string) {
+  return payReportFromBuyerWallet(marketId, reportHash)
 }
 
 export function publishReportProof(marketId: string, reportHash: string) {

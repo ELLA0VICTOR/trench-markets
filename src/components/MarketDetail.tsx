@@ -13,9 +13,12 @@ type MarketDetailProps = {
   signal: Signal
   reportHash: string
   proofLabel: string
+  paymentMode: 'buyer' | 'sponsored'
+  paymentError?: string
   onBack: () => void
   onReportRequest: () => void
-  onSettleReport: () => void
+  onPaymentModeChange: (mode: 'buyer' | 'sponsored') => void
+  onSettleReport: (mode: 'buyer' | 'sponsored') => void
   onSignalPublish: () => void
 }
 
@@ -25,7 +28,7 @@ function paymentCopy(paymentState: PaymentState) {
   }
 
   if (paymentState === 'required') {
-    return 'HTTP 402 issued with amount, receiver, asset, and report hash.'
+    return 'HTTP 402 issued. Buyer wallet signs the Gateway authorization and pays the seller.'
   }
 
   if (paymentState === 'settling') {
@@ -37,6 +40,13 @@ function paymentCopy(paymentState: PaymentState) {
   }
 
   return 'Signal hash is committed to the Arc proof rail.'
+}
+
+function formatReceiver(receiver?: string) {
+  if (!receiver) return 'analyst.trench'
+  if (!/^0x[a-fA-F0-9]{40}$/.test(receiver)) return receiver
+
+  return `${receiver.slice(0, 6)}...${receiver.slice(-4)}`
 }
 
 function reportStateCopy(reportState: MarketDetailProps['reportState']) {
@@ -74,8 +84,11 @@ export function MarketDetail({
   signal,
   reportHash,
   proofLabel,
+  paymentMode,
+  paymentError,
   onBack,
   onReportRequest,
+  onPaymentModeChange,
   onSettleReport,
   onSignalPublish,
 }: MarketDetailProps) {
@@ -87,6 +100,8 @@ export function MarketDetail({
   const risks = agentReport?.risks || market.risks
   const challenge = agentReport?.challenge
   const runs = agentReport?.runs || []
+  const reportPriceLabel = challenge ? `$${challenge.amount} ${challenge.asset}` : reportPrice
+  const pricingRationale = challenge?.pricing.rationale.join(' / ')
 
   return (
     <main className="detail-layout">
@@ -202,28 +217,64 @@ export function MarketDetail({
               <MiniIcon type="signal" />
               <div>
                 <span>Seller</span>
-                <strong>{challenge?.receiver || 'analyst.trench'}</strong>
+                <strong>{formatReceiver(challenge?.receiver)}</strong>
               </div>
             </div>
             <div className="relay-line">
               <MiniIcon type="pay" />
               <div>
                 <span>Price</span>
-                <strong>{challenge ? `$${challenge.amount} ${challenge.asset}` : reportPrice}</strong>
+                <strong>{reportPriceLabel}</strong>
               </div>
             </div>
           </div>
+
+          {challenge?.pricing ? (
+            <div className="pricing-note">
+              <span>Agent price</span>
+              <strong>Max ${challenge.pricing.maxAmount}</strong>
+              <p>{pricingRationale}</p>
+            </div>
+          ) : null}
 
           <p className="action-copy">
             {paymentState === 'quote' ? reportStateCopy(reportState) : paymentCopy(paymentState)}
           </p>
 
+          <div className="payment-mode" aria-label="Payment mode">
+            <button
+              type="button"
+              className={paymentMode === 'buyer' ? 'is-active' : ''}
+              onClick={() => onPaymentModeChange('buyer')}
+              disabled={paymentState === 'settling'}
+            >
+              Buyer wallet
+            </button>
+            <button
+              type="button"
+              className={paymentMode === 'sponsored' ? 'is-active' : ''}
+              onClick={() => onPaymentModeChange('sponsored')}
+              disabled={paymentState === 'settling'}
+            >
+              Sponsored demo
+            </button>
+          </div>
+
+          <div className="faucet-row">
+            <span>Need Arc faucet?</span>
+            <a href="https://faucet.circle.com/?allow=true" target="_blank" rel="noreferrer">
+              Get faucet
+            </a>
+          </div>
+
+          {paymentError ? <p className="payment-error">{paymentError}</p> : null}
+
           <div className="action-buttons">
             <button type="button" onClick={onReportRequest} disabled={paymentState !== 'quote'}>
               Request report
             </button>
-            <button type="button" onClick={onSettleReport} disabled={paymentState !== 'required'}>
-              Pay via x402
+            <button type="button" onClick={() => onSettleReport(paymentMode)} disabled={paymentState !== 'required'}>
+              {paymentMode === 'buyer' ? 'Pay from buyer wallet' : 'Run sponsored demo'}
             </button>
             <button type="button" onClick={onSignalPublish} disabled={paymentState !== 'paid'}>
               Publish to Arc

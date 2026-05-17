@@ -16,7 +16,6 @@ const PORT = Number(process.env.PORT || 8787)
 const SELLER_ADDRESS = process.env.CIRCLE_SELLER_ADDRESS
 const BUYER_PRIVATE_KEY = process.env.CIRCLE_BUYER_PRIVATE_KEY
 const ARC_RPC_URL = process.env.ARC_RPC_URL
-const REPORT_PRICE = '$0.04'
 const ARC_TESTNET_CAIP2 = 'eip155:5042002'
 const FACILITATOR_URL = 'https://gateway-api-testnet.circle.com'
 
@@ -79,6 +78,16 @@ function buyerEnabled() {
   return Boolean(BUYER_PRIVATE_KEY)
 }
 
+function reportPriceForGateway(report: AgentReport) {
+  const amount = Number(report.challenge.amount)
+
+  if (!Number.isFinite(amount) || amount <= 0) {
+    return '$0.04'
+  }
+
+  return `$${amount.toFixed(2)}`
+}
+
 async function payProtectedReport(report: AgentReport) {
   if (!BUYER_PRIVATE_KEY) return null
 
@@ -114,6 +123,7 @@ app.use((request, response, next) => {
   response.header('access-control-allow-origin', '*')
   response.header('access-control-allow-methods', 'GET, POST, OPTIONS')
   response.header('access-control-allow-headers', 'content-type, payment, payment-signature')
+  response.header('access-control-expose-headers', 'PAYMENT-REQUIRED, PAYMENT-RESPONSE')
 
   if (request.method === 'OPTIONS') {
     response.sendStatus(204)
@@ -153,6 +163,32 @@ const unlockReportHandler: RequestHandler = (request: PaidRequest, response) => 
   response.json({ report: paidReport, payment: request.payment || null })
 }
 
+const sponsoredPaymentHandler: RequestHandler = asyncRoute(async (request, response) => {
+  const result = getExistingReport(request.body as ReportBody)
+
+  if ('error' in result) {
+    response.status(404).json({ error: result.error })
+    return
+  }
+
+  if (gateway && buyerEnabled()) {
+    const paid = await payProtectedReport(result.report)
+    response.json({
+      report: saveReport(paid?.data.report || result.report),
+      payment: paymentSummary(paid),
+    })
+    return
+  }
+
+  response.json({
+    report: saveReport(settleX402Challenge(result.report)),
+    payment: {
+      mode: 'local-simulation',
+      reason: 'Set CIRCLE_SELLER_ADDRESS and CIRCLE_BUYER_PRIVATE_KEY to use Circle Gateway x402.',
+    },
+  })
+})
+
 app.get('/api/health', (_request, response) => {
   response.json({
     ok: true,
@@ -164,6 +200,7 @@ app.get('/api/health', (_request, response) => {
       arcWriterConfigured: arcWriterConfigured(),
       facilitatorUrl: FACILITATOR_URL,
       network: 'arcTestnet',
+      pricingModel: 'trench-value-v1',
     },
   })
 })
@@ -207,7 +244,17 @@ app.post(
 )
 
 if (gateway) {
-  app.post('/api/reports/unlock', gateway.require(REPORT_PRICE), unlockReportHandler)
+  app.post('/api/reports/unlock', (request, response, next) => {
+    const result = getExistingReport(request.body as ReportBody)
+
+    if ('error' in result) {
+      response.status(404).json({ error: result.error })
+      return
+    }
+
+    const requirePayment = gateway.require(reportPriceForGateway(result.report))
+    Promise.resolve(requirePayment(request, response, next)).catch(next)
+  }, unlockReportHandler)
 } else {
   app.post('/api/reports/unlock', (_request, response) => {
     response.status(402).json({
@@ -217,34 +264,8 @@ if (gateway) {
   })
 }
 
-app.post(
-  '/api/payments/settle',
-  asyncRoute(async (request, response) => {
-    const result = getExistingReport(request.body as ReportBody)
-
-    if ('error' in result) {
-      response.status(404).json({ error: result.error })
-      return
-    }
-
-    if (gateway && buyerEnabled()) {
-      const paid = await payProtectedReport(result.report)
-      response.json({
-        report: saveReport(paid?.data.report || result.report),
-        payment: paymentSummary(paid),
-      })
-      return
-    }
-
-    response.json({
-      report: saveReport(settleX402Challenge(result.report)),
-      payment: {
-        mode: 'local-simulation',
-        reason: 'Set CIRCLE_SELLER_ADDRESS and CIRCLE_BUYER_PRIVATE_KEY to use Circle Gateway x402.',
-      },
-    })
-  }),
-)
+app.post('/api/payments/sponsored', sponsoredPaymentHandler)
+app.post('/api/payments/settle', sponsoredPaymentHandler)
 
 app.post(
   '/api/proofs',

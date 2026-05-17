@@ -16,6 +16,13 @@ export type PaymentChallenge = {
   receiver: string
   reportHash: string
   memo: string
+  pricing: {
+    model: 'trench-value-v1'
+    minAmount: string
+    maxAmount: string
+    score: number
+    rationale: string[]
+  }
 }
 
 export type AgentReport = {

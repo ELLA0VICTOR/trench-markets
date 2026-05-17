@@ -112,4 +112,4 @@ export const agentSteps = [
   'Settlement agent commits the report hash and signal metadata to Arc.',
 ]
 
-export const reportPrice = '$0.04 USDC'
+export const reportPrice = '$0.04-$2.00 USDC'
