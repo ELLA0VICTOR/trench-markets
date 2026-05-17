@@ -16,7 +16,11 @@ async function main() {
   }
 
   const account = privateKeyToAccount(privateKey)
-  const transport = http(arcRpcUrl())
+  const transport = http(arcRpcUrl(), {
+    retryCount: 3,
+    retryDelay: 1_500,
+    timeout: 60_000,
+  })
   const publicClient = createPublicClient({
     chain: arcTestnet,
     transport,

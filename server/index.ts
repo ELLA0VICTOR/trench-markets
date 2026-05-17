@@ -97,6 +97,17 @@ async function payProtectedReport(report: AgentReport) {
   })
 }
 
+function paymentSummary(payment: Awaited<ReturnType<typeof payProtectedReport>>) {
+  if (!payment) return null
+
+  return {
+    status: payment.status,
+    amount: payment.amount.toString(),
+    formattedAmount: payment.formattedAmount,
+    transaction: payment.transaction,
+  }
+}
+
 const app = express()
 
 app.use((request, response, next) => {
@@ -218,7 +229,10 @@ app.post(
 
     if (gateway && buyerEnabled()) {
       const paid = await payProtectedReport(result.report)
-      response.json({ report: saveReport(paid?.data.report || result.report), payment: paid })
+      response.json({
+        report: saveReport(paid?.data.report || result.report),
+        payment: paymentSummary(paid),
+      })
       return
     }
 
