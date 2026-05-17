@@ -123,7 +123,7 @@ Check and fund the x402 buyer agent Gateway balance:
 
 ```bash
 npm run gateway:balances
-npm run gateway:deposit 1.00
+npm run gateway:deposit -- 1.00
 ```
 
 Before depositing, request Arc Testnet USDC for the buyer wallet from the Circle Faucet. The same testnet USDC is used for Arc gas and Gateway-backed x402 payments.
