@@ -120,6 +120,39 @@ function reportForClient(report: AgentReport) {
     catalysts: [],
     risks: [],
     sources: [],
+    evidence: report.evidence
+      ? {
+          ...report.evidence,
+          plan: {
+            event: 'locked',
+            deadline: 'locked',
+            category: 'locked',
+            entities: [],
+            queries: [],
+            resolutionNotes: [],
+          },
+          items: [],
+          skeptic: [],
+          summary: 'Evidence packet is locked until x402 payment succeeds.',
+          forecast: {
+            ...report.evidence.forecast,
+            evidenceDelta: 0,
+            microstructureDelta: 0,
+            deadlineDelta: 0,
+            fairPrice: report.marketPrice,
+            confidence: 0,
+            evidenceQuality: 0,
+            baseRate: 'locked',
+          },
+          recommendation: {
+            ...report.evidence.recommendation,
+            action: 'PASS' as const,
+            positionSize: 'locked',
+            maxEntry: 'locked',
+            invalidation: 'locked',
+          },
+        }
+      : undefined,
     runs: report.runs.map((run) => ({
       ...run,
       summary:
@@ -327,7 +360,7 @@ app.post(
       return
     }
 
-    const report = saveReport(runAnalystAgent(body.market))
+    const report = saveReport(await runAnalystAgent(body.market))
     response.json({ report: reportForClient(report) })
   }),
 )
@@ -342,7 +375,7 @@ app.post(
       return
     }
 
-    const existing = getReport(body.market.id) || runAnalystAgent(body.market)
+    const existing = getReport(body.market.id) || (await runAnalystAgent(body.market))
     const report = saveReport(requestLockedReport(existing))
     response.json({ report: reportForClient(report) })
   }),

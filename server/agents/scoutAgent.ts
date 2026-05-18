@@ -99,7 +99,7 @@ function fallbackMarket(): Market {
     tab: 'Arc',
     status: 'Ending Soon',
     description:
-      'A fallback Arc market used when the live Polymarket scout cannot reach the public feed.',
+      'A fallback Arc market used when the live market scout cannot reach the public feed.',
     price,
     fairPrice: buildFairPrice('Arc testnet activity', price),
     volume24h: 184000,
@@ -150,7 +150,7 @@ function normalizeGammaEvent(event: GammaEvent): Market | null {
     id: String(market.id || event.id || event.slug || title),
     title,
     category,
-    source: 'Polymarket',
+    source: 'Live market feed',
     tab: tabFor(category, title, volume24h),
     status: statusFor(endDate),
     slug: market.slug || event.slug,
@@ -168,7 +168,7 @@ function normalizeGammaEvent(event: GammaEvent): Market | null {
     thesis:
       'The analyst is waiting on the buyer-agent report request before revealing the full reasoning packet.',
     catalysts: [
-      'Polymarket volume shift',
+      'Market volume shift',
       'Outcome price drift',
       `${Math.round(hashFloat(title) * 100)}% source-priority score`,
     ],
@@ -180,7 +180,7 @@ export async function runScoutAgent(): Promise<{ markets: Market[]; run: AgentRu
   const response = await fetch(GAMMA_EVENTS_URL)
 
   if (!response.ok) {
-    throw new Error(`Polymarket returned ${response.status}`)
+    throw new Error(`Market feed returned ${response.status}`)
   }
 
   const data = (await response.json()) as GammaEvent[]
@@ -192,7 +192,7 @@ export async function runScoutAgent(): Promise<{ markets: Market[]; run: AgentRu
       run: {
         agent: 'Scout Agent',
         status: 'simulated',
-        summary: 'Polymarket returned too few usable markets, so Scout served the Arc fallback market.',
+        summary: 'The live feed returned too few usable markets, so Scout served the Arc fallback market.',
         artifact: 'fallback:arc-testnet-activity',
       },
     }
@@ -203,7 +203,7 @@ export async function runScoutAgent(): Promise<{ markets: Market[]; run: AgentRu
     run: {
       agent: 'Scout Agent',
       status: 'live',
-      summary: `Ranked ${markets.length} active Polymarket markets by liquidity, volume, and deadline pressure.`,
+      summary: `Ranked ${markets.length} active live markets by liquidity, volume, and deadline pressure.`,
       artifact: GAMMA_EVENTS_URL,
     },
   }

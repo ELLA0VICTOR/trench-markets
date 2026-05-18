@@ -1,10 +1,61 @@
 import type { Signal } from './market'
 
 export type AgentRun = {
-  agent: 'Scout Agent' | 'Analyst Agent' | 'Buyer Agent' | 'Arc Proof Agent'
+  agent:
+    | 'Scout Agent'
+    | 'Research Agent'
+    | 'Analyst Agent'
+    | 'Skeptic Agent'
+    | 'Risk Agent'
+    | 'Buyer Agent'
+    | 'Arc Proof Agent'
   status: 'live' | 'simulated' | 'queued'
   summary: string
   artifact?: string
+}
+
+export type EvidenceItem = {
+  title: string
+  source: string
+  kind: 'news' | 'reference' | 'developer' | 'fallback'
+  url?: string
+  publishedAt?: string
+  summary: string
+  reliability: number
+  relevance: number
+  stance: 'supports-yes' | 'supports-no' | 'neutral' | 'ambiguous'
+  impact: number
+}
+
+export type EvidenceBrief = {
+  plan: {
+    event: string
+    deadline: string
+    category: string
+    entities: string[]
+    queries: string[]
+    resolutionNotes: string[]
+  }
+  items: EvidenceItem[]
+  forecast: {
+    prior: number
+    evidenceDelta: number
+    microstructureDelta: number
+    deadlineDelta: number
+    fairPrice: number
+    confidence: number
+    evidenceQuality: number
+    baseRate: string
+  }
+  recommendation: {
+    action: Signal
+    positionSize: string
+    maxEntry: string
+    invalidation: string
+  }
+  skeptic: string[]
+  summary: string
+  verdict: 'strong' | 'actionable' | 'watchlist' | 'pass'
 }
 
 export type PaymentChallenge = {
@@ -38,6 +89,7 @@ export type AgentReport = {
   catalysts: string[]
   risks: string[]
   sources: string[]
+  evidence?: EvidenceBrief
   createdAt: string
   locked: boolean
   challenge: PaymentChallenge

@@ -11,7 +11,7 @@ type MarketBoardProps = {
 
 function feedCopy(feedState: FeedState) {
   if (feedState === 'live') {
-    return 'Live Polymarket feed'
+    return 'trench-markets feed'
   }
 
   if (feedState === 'syncing') {

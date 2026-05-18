@@ -87,7 +87,7 @@ export function HowItWorksModal({ open, onClose }: HowItWorksModalProps) {
 
         <div className="how-visual" aria-hidden="true">
           <div className="how-side-card">
-            <span>Polymarket</span>
+            <span>trench-markets</span>
           </div>
           <div className="how-market-card">
             <div className="how-card-topline">

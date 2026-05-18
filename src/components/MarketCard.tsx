@@ -84,7 +84,7 @@ export function MarketCard({ market, active, onSelect }: MarketCardProps) {
       onClick={() => onSelect(market.id)}
     >
       <div className="market-card-tags">
-        <span>{market.source === 'Polymarket' ? 'Polymarket' : 'Trench'}</span>
+        <span>trench-markets</span>
         <strong>{market.status}</strong>
       </div>
 

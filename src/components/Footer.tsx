@@ -30,8 +30,8 @@ export function Footer() {
         <a href="https://developers.circle.com/" target="_blank" rel="noreferrer">
           Circle docs
         </a>
-        <a href="https://docs.polymarket.com/" target="_blank" rel="noreferrer">
-          Polymarket docs
+        <a href="https://agora.thecanteenapp.com/" target="_blank" rel="noreferrer">
+          Agora docs
         </a>
       </div>
 

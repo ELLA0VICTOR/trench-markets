@@ -61,6 +61,18 @@ function reportStateCopy(reportState: MarketDetailProps['reportState']) {
   return 'Buyer agent can request the locked report artifact.'
 }
 
+function formatDelta(value: number) {
+  const points = Math.round(value * 100)
+
+  return points > 0 ? `+${points} pts` : `${points} pts`
+}
+
+function evidenceQualityLabel(value: number) {
+  if (value >= 0.72) return 'high'
+  if (value >= 0.52) return 'medium'
+  return 'thin'
+}
+
 function DetailHeroImage({ market }: { market: Market }) {
   if (market.imageUrl) {
     return <img src={market.imageUrl} alt="" referrerPolicy="no-referrer" />
@@ -103,6 +115,7 @@ export function MarketDetail({
   const reportPriceLabel = challenge ? `$${challenge.amount} ${challenge.asset}` : reportPrice
   const pricingRationale = challenge?.pricing.rationale.join(' / ')
   const lockedLabel = paymentState === 'settling' ? 'settling' : 'locked'
+  const evidence = agentReport?.evidence
 
   return (
     <main className="detail-layout">
@@ -119,7 +132,7 @@ export function MarketDetail({
               <strong>{market.status}</strong>
             </div>
             <h1>{market.title}</h1>
-            <p>By {market.source}</p>
+            <p>By trench-markets</p>
           </div>
         </section>
 
@@ -183,6 +196,80 @@ export function MarketDetail({
                 </div>
               ))}
             </div>
+          ) : null}
+        </section>
+
+        <section className="detail-section">
+          <div className="detail-section-heading">
+            <h2>Evidence engine</h2>
+            <span>{unlocked && evidence ? evidence.verdict : 'locked'}</span>
+          </div>
+          <p>
+            {unlocked && evidence
+              ? evidence.summary
+              : 'External evidence, source scoring, skeptic notes, and entry guidance unlock after x402 payment.'}
+          </p>
+
+          {unlocked && evidence ? (
+            <>
+              <div className="evidence-metrics" aria-label="Evidence forecast">
+                <div>
+                  <span>Prior</span>
+                  <strong>{formatPercent(evidence.forecast.prior)}</strong>
+                </div>
+                <div>
+                  <span>Evidence</span>
+                  <strong>{formatDelta(evidence.forecast.evidenceDelta)}</strong>
+                </div>
+                <div>
+                  <span>Fair</span>
+                  <strong>{formatPercent(evidence.forecast.fairPrice)}</strong>
+                </div>
+                <div>
+                  <span>Quality</span>
+                  <strong>{evidenceQualityLabel(evidence.forecast.evidenceQuality)}</strong>
+                </div>
+              </div>
+
+              <div className="evidence-list" aria-label="Evidence sources">
+                {evidence.items.slice(0, 5).map((item) => (
+                  <a
+                    className="evidence-item"
+                    href={item.url || undefined}
+                    target={item.url ? '_blank' : undefined}
+                    rel="noreferrer"
+                    key={`${item.source}-${item.title}`}
+                  >
+                    <div>
+                      <span>{item.source}</span>
+                      <strong>{item.title}</strong>
+                    </div>
+                    <small>{item.stance.replace('-', ' ')}</small>
+                  </a>
+                ))}
+              </div>
+
+              <div className="report-grid">
+                <div>
+                  <span>Research plan</span>
+                  <p>{evidence.plan.queries.join(' / ')}</p>
+                </div>
+                <div>
+                  <span>Base rate</span>
+                  <p>{evidence.forecast.baseRate}</p>
+                </div>
+                <div>
+                  <span>Entry</span>
+                  <p>
+                    {evidence.recommendation.maxEntry} / {evidence.recommendation.positionSize}
+                  </p>
+                </div>
+                <div>
+                  <span>Skeptic</span>
+                  <p>{evidence.skeptic.join(' / ')}</p>
+                </div>
+              </div>
+            </>
           ) : null}
         </section>
       </section>

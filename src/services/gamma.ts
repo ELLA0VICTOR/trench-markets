@@ -127,7 +127,7 @@ function normalizeGammaEvent(event: GammaEvent): Market | null {
     id: String(market.id || event.id || event.slug || title),
     title,
     category,
-    source: 'Polymarket',
+    source: 'Live market feed',
     tab: tabFor(category, title, volume24h),
     status: statusFor(endDate),
     slug: market.slug || event.slug,
@@ -144,7 +144,7 @@ function normalizeGammaEvent(event: GammaEvent): Market | null {
     tone: toneFor(title),
     thesis:
       'The agent detects a measurable gap between market-implied probability and a blended estimate from activity, liquidity, deadline pressure, and signal momentum.',
-    catalysts: ['Polymarket volume shift', 'Outcome price drift', 'Deadline compression'],
+    catalysts: ['Market volume shift', 'Outcome price drift', 'Deadline compression'],
     risks: ['Thin order book', 'Ambiguous resolution text', 'Late news reversal'],
   }
 }
@@ -167,7 +167,7 @@ export async function fetchGammaMarkets(signal: AbortSignal) {
   const response = await fetch(GAMMA_EVENTS_URL, { signal })
 
   if (!response.ok) {
-    throw new Error(`Polymarket returned ${response.status}`)
+    throw new Error(`Market feed returned ${response.status}`)
   }
 
   const data = (await response.json()) as GammaEvent[]
