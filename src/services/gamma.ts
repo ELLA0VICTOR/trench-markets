@@ -1,4 +1,5 @@
 import { seedMarkets } from '../data/markets'
+import { apiFetch } from '../lib/api'
 import { buildFairPrice } from '../lib/marketMath'
 import type { GammaEvent, Market, MarketTab } from '../types/market'
 
@@ -151,7 +152,7 @@ function normalizeGammaEvent(event: GammaEvent): Market | null {
 
 export async function fetchGammaMarkets(signal: AbortSignal) {
   try {
-    const response = await fetch('/api/markets', { signal })
+    const response = await apiFetch('/api/markets', { signal })
 
     if (response.ok) {
       const data = (await response.json()) as MarketFeedResponse

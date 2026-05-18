@@ -1,5 +1,6 @@
 import type { Market } from '../types/market'
 import type { AgentReport } from '../types/report'
+import { apiFetch } from '../lib/api'
 import { payReportFromBuyerWallet } from './x402BuyerWallet'
 
 type ReportResponse = {
@@ -22,7 +23,7 @@ async function parseReportResponse(response: Response) {
 }
 
 async function postReport(path: string, body: unknown, signal?: AbortSignal) {
-  const response = await fetch(path, {
+  const response = await apiFetch(path, {
     method: 'POST',
     headers: {
       'content-type': 'application/json',
@@ -62,7 +63,7 @@ export function fetchSavedReport(marketId: string, buyerAddress?: string, signal
   }
 
   const query = params.toString()
-  return fetch(`/api/reports/${encodeURIComponent(marketId)}${query ? `?${query}` : ''}`, { signal }).then(
+  return apiFetch(`/api/reports/${encodeURIComponent(marketId)}${query ? `?${query}` : ''}`, { signal }).then(
     parseReportResponse,
   )
 }

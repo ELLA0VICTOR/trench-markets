@@ -1,5 +1,6 @@
 import type { AgentReport } from '../types/report'
 import { getAddress, recoverTypedDataAddress } from 'viem'
+import { apiFetch } from '../lib/api'
 
 type ReportResponse = {
   report: AgentReport
@@ -696,7 +697,7 @@ function selectGatewayOption(paymentRequired: PaymentRequiredResponse) {
 }
 
 async function gatewayBalanceFor(address: `0x${string}`) {
-  const response = await fetch(`/api/gateway/balances/${address}`)
+  const response = await apiFetch(`/api/gateway/balances/${address}`)
   const data = (await response.json().catch(() => null)) as GatewayBalanceResult | { error?: string } | null
 
   if (response.status === 404) {
@@ -869,7 +870,7 @@ export async function payReportFromBuyerWallet(marketId: string, reportHash: str
   )
   const body: UnlockBody = { marketId, reportHash, buyerAddress: paymentAddress }
   const serializedBody = JSON.stringify(body)
-  const initialResponse = await fetch('/api/reports/unlock', {
+  const initialResponse = await apiFetch('/api/reports/unlock', {
     method: 'POST',
     headers: {
       'content-type': 'application/json',
@@ -913,7 +914,7 @@ export async function payReportFromBuyerWallet(marketId: string, reportHash: str
     gatewayOption,
   )
   writeWalletSession(wallet, paymentPayload.signerAddress, existingSession?.verificationSignature)
-  const paidResponse = await fetch('/api/reports/unlock', {
+  const paidResponse = await apiFetch('/api/reports/unlock', {
     method: 'POST',
     headers: {
       'content-type': 'application/json',

@@ -149,6 +149,52 @@ npm run dev
 
 The Vite dev server proxies `/api` to `http://127.0.0.1:8787`.
 
+## Deployment
+
+Trench is deployed as two services:
+
+- **Frontend:** Vercel static Vite app.
+- **Backend:** Render Node web service running the Express API.
+
+Set these variables on Vercel:
+
+```bash
+VITE_API_BASE_URL=https://your-render-api.onrender.com
+VITE_ARC_EXPLORER_TX_URL=https://testnet.arcscan.app/tx/
+```
+
+Set these variables on Render:
+
+```bash
+PORT=8787
+SUPABASE_URL=https://your-project.supabase.co
+SUPABASE_SERVICE_ROLE_KEY=...
+TRENCH_STORE_PATH=/tmp/trench-store.json
+REPORT_REFRESH_MINUTES=15
+ARC_RPC_URL=https://rpc.testnet.arc.network
+ARC_WRITER_PRIVATE_KEY=0x...
+SIGNAL_REGISTRY_ADDRESS=0x...
+CIRCLE_SELLER_ADDRESS=0x...
+```
+
+Render build command:
+
+```bash
+npm install && npm run server:build
+```
+
+Render start command:
+
+```bash
+node dist-server/index.js
+```
+
+After deployment, confirm the API is reachable:
+
+```bash
+https://your-render-api.onrender.com/api/health
+```
+
 ## Circle x402 Mode
 
 Trench runs without secrets in local simulation mode. To enable the real Circle Gateway x402 path, fill `.env` before starting the API:
