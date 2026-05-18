@@ -70,7 +70,8 @@ export function Topbar({
       </label>
       <div className="topbar-actions">
         <button className="link-button" type="button" onClick={onHowItWorks}>
-          How it works?
+          <span className="how-label-full">How it works?</span>
+          <span className="how-label-short">How?</span>
         </button>
         <div className="balance-chip">Arc USDC</div>
         <button
@@ -81,7 +82,8 @@ export function Topbar({
           disabled={walletStatus === 'connecting'}
           aria-expanded={walletAddress ? walletMenuOpen : undefined}
         >
-          {walletLabel}
+          <span className="wallet-label-full">{walletLabel}</span>
+          <span className="wallet-label-short">{walletAddress ? walletLabel : 'Connect'}</span>
         </button>
         {walletMenuOpen && (walletAddress || walletOptions.length > 0) ? (
           <div className="wallet-menu">

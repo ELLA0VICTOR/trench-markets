@@ -260,6 +260,12 @@ a {
   white-space: nowrap;
 }
 
+.wallet-label-short,
+.button-label-short,
+.how-label-short {
+  display: none;
+}
+
 .wallet-menu {
   position: absolute;
   top: calc(100% + 10px);
@@ -2379,22 +2385,54 @@ dd {
   }
 
   .topbar {
-    grid-template-columns: 1fr;
-    gap: 12px;
-    padding: 14px;
+    grid-template-columns: auto minmax(0, 1fr);
+    gap: 10px 12px;
+    min-height: 0;
+    padding: 12px 14px 10px;
   }
 
   .brand span {
-    font-size: 22px;
+    display: none;
   }
 
   .search-box {
-    height: 48px;
+    grid-column: 1 / -1;
+    grid-row: 2;
+    height: 42px;
+    gap: 10px;
+    padding-inline: 12px;
   }
 
   .topbar-actions {
     display: grid;
-    grid-template-columns: 1fr 1fr;
+    grid-column: 2;
+    grid-row: 1;
+    grid-template-columns: auto auto auto;
+    justify-content: end;
+    gap: 6px;
+    min-width: 0;
+  }
+
+  .topbar-actions .link-button,
+  .topbar-actions .balance-chip,
+  .topbar-actions .wallet-button {
+    min-height: 36px;
+    padding-inline: 9px;
+    font-size: 12px;
+  }
+
+  .topbar-actions .balance-chip {
+    min-width: 0;
+  }
+
+  .wallet-label-full,
+  .button-label-full {
+    display: none;
+  }
+
+  .wallet-label-short,
+  .button-label-short {
+    display: inline;
   }
 
   .modal-backdrop {
@@ -2437,18 +2475,33 @@ dd {
     border-color: var(--rule);
   }
 
-  .wallet-button,
-  .create-button {
-    grid-column: 1 / -1;
+  .market-tabs {
+    top: 112px;
+    min-height: 52px;
+    gap: 26px;
+    padding: 0 20px;
+    scrollbar-width: none;
   }
 
-  .market-tabs {
-    top: 174px;
-    padding: 0 14px;
+  .market-tabs::-webkit-scrollbar {
+    display: none;
+  }
+
+  .market-tabs button {
+    min-height: 52px;
+    padding: 0;
+    border-width: 0 0 2px;
+    font-size: 14px;
+    background: transparent;
+  }
+
+  .market-tabs button.is-active {
+    color: var(--accent);
+    border-color: var(--accent);
+    background: transparent;
   }
 
   .create-panel,
-  .board-header,
   .site-footer,
   .agent-desk,
   .detail-hero,
@@ -2472,18 +2525,39 @@ dd {
   }
 
   .board-header {
-    align-items: start;
-    padding: 22px 14px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 16px 20px;
+  }
+
+  .board-header > div:first-child {
+    min-width: 0;
+  }
+
+  .board-header span {
+    font-size: 10px;
   }
 
   .board-actions {
-    width: 100%;
-    justify-content: flex-start;
-    flex-wrap: wrap;
+    flex: 0 0 auto;
+    width: auto;
+    justify-content: flex-end;
+    gap: 8px;
+  }
+
+  .feed-chip {
+    display: none;
+  }
+
+  .create-button {
+    min-height: 38px;
+    padding-inline: 14px;
+    font-size: 13px;
   }
 
   .board-header h1 {
-    font-size: 36px;
+    font-size: 34px;
   }
 
   .market-grid {
@@ -2493,12 +2567,63 @@ dd {
   .market-card,
   .market-card:nth-child(2n),
   .market-card:nth-child(3n) {
-    min-height: 360px;
+    min-height: 0;
+    padding: 20px;
     border-right: 0;
   }
 
+  .market-card-tags {
+    margin-bottom: 12px;
+  }
+
+  .market-card-tags span,
+  .market-card-tags strong {
+    padding: 6px 9px;
+    font-size: 10px;
+  }
+
+  .market-card-body {
+    min-height: 0;
+    padding: 12px;
+  }
+
+  .market-image,
+  .market-fallback-visual {
+    aspect-ratio: 16 / 9;
+    max-height: 190px;
+    margin-bottom: 14px;
+  }
+
   .market-card h3 {
-    font-size: 16px;
+    min-height: 0;
+    font-size: 17px;
+    line-height: 1.22;
+  }
+
+  .participant-row {
+    margin-top: 18px;
+  }
+
+  .participant {
+    width: 30px;
+    height: 30px;
+    margin-left: -7px;
+  }
+
+  .market-card-footer {
+    flex-wrap: wrap;
+    gap: 10px 14px;
+    padding-top: 14px;
+  }
+
+  .market-card-signal {
+    gap: 10px;
+    padding-top: 12px;
+  }
+
+  .market-card-footer span,
+  .market-card-signal {
+    font-size: 12px;
   }
 
   .agent-desk {
@@ -2564,5 +2689,30 @@ dd {
     padding: 24px;
     border-right: 0;
     border-bottom: 1px solid rgba(255, 255, 255, 0.12);
+  }
+}
+
+@media (max-width: 380px) {
+  .topbar {
+    padding-inline: 12px;
+  }
+
+  .topbar-actions {
+    gap: 5px;
+  }
+
+  .topbar-actions .link-button,
+  .topbar-actions .balance-chip,
+  .topbar-actions .wallet-button {
+    padding-inline: 8px;
+    font-size: 11px;
+  }
+
+  .how-label-full {
+    display: none;
+  }
+
+  .how-label-short {
+    display: inline;
   }
 }

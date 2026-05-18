@@ -38,7 +38,8 @@ export function MarketBoard({
         <div className="board-actions">
           <div className="feed-chip">{feedCopy(feedState)}</div>
           <button className="create-button" type="button" onClick={onCreateClick}>
-            Create market
+            <span className="button-label-full">Create market</span>
+            <span className="button-label-short">Create</span>
           </button>
         </div>
       </div>
