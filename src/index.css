@@ -104,9 +104,9 @@ a {
   top: 0;
   z-index: 30;
   display: grid;
-  grid-template-columns: 190px minmax(280px, 640px) 1fr;
+  grid-template-columns: max-content minmax(260px, 1fr) max-content;
   align-items: center;
-  gap: 28px;
+  gap: clamp(16px, 1.6vw, 28px);
   min-height: 88px;
   padding: 16px 24px;
   border-bottom: 1px solid var(--rule);
@@ -176,6 +176,7 @@ a {
   justify-content: flex-end;
   align-items: center;
   gap: 12px;
+  min-width: max-content;
 }
 
 .board-actions {
@@ -217,6 +218,7 @@ a {
   border-color: transparent;
   color: var(--g100);
   background: transparent;
+  white-space: nowrap;
 }
 
 .balance-chip {
@@ -226,6 +228,7 @@ a {
   padding: 0 16px;
   color: var(--accent);
   font-weight: 600;
+  white-space: nowrap;
 }
 
 .create-button,
@@ -254,6 +257,7 @@ a {
 .wallet-button {
   color: var(--accent);
   background: var(--accent-dim);
+  white-space: nowrap;
 }
 
 .wallet-menu {
@@ -2277,12 +2281,27 @@ dd {
 
 @media (max-width: 1280px) {
   .topbar {
-    grid-template-columns: 170px minmax(260px, 1fr);
+    grid-template-columns: max-content minmax(220px, 1fr) max-content;
+    gap: 16px;
   }
 
   .topbar-actions {
-    grid-column: 1 / -1;
-    justify-content: flex-start;
+    grid-column: auto;
+    justify-content: flex-end;
+    gap: 10px;
+  }
+
+  .link-button {
+    padding: 0 6px;
+  }
+
+  .balance-chip {
+    min-width: 106px;
+    padding: 0 12px;
+  }
+
+  .wallet-button {
+    padding-inline: 14px;
   }
 
 }
@@ -2298,6 +2317,17 @@ dd {
 
   .detail-action {
     border-top: 1px solid var(--rule);
+  }
+}
+
+@media (max-width: 980px) {
+  .topbar {
+    grid-template-columns: max-content minmax(220px, 1fr);
+  }
+
+  .topbar-actions {
+    grid-column: 1 / -1;
+    justify-content: flex-start;
   }
 }
 
