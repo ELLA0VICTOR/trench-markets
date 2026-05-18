@@ -38,6 +38,8 @@ function pricingForReport(market: Market, edgeBps: number, confidence: number, e
   const confidenceScore = clamp(confidence, 0, 1)
   const liquidityScore = clamp(Math.log10(combinedDepth) / 7, 0, 1)
   const evidenceScore = evidence?.forecast.evidenceQuality || 0.28
+  const officialScore = evidence?.forecast.officialCoverage || 0
+  const contradictionDiscount = evidence ? Math.max(0, 1 - evidence.diagnostics.contradictionScore * 0.22) : 1
   const urgencyScore =
     deadlineHours <= 24
       ? 1
@@ -50,12 +52,14 @@ function pricingForReport(market: Market, edgeBps: number, confidence: number, e
             : 0.2
   const statusBoost = market.status === 'Ending Soon' ? 0.08 : market.status === 'Live' ? 0.03 : -0.06
   const score = clamp(
-    edgeScore * 0.31 +
-      confidenceScore * 0.22 +
-      liquidityScore * 0.13 +
-      urgencyScore * 0.13 +
-      evidenceScore * 0.21 +
-      statusBoost,
+    (edgeScore * 0.29 +
+      confidenceScore * 0.2 +
+      liquidityScore * 0.11 +
+      urgencyScore * 0.11 +
+      evidenceScore * 0.19 +
+      officialScore * 0.1 +
+      statusBoost) *
+      contradictionDiscount,
     0,
     1,
   )
@@ -64,13 +68,15 @@ function pricingForReport(market: Market, edgeBps: number, confidence: number, e
     `${Math.round(absoluteEdge / 100)} pt agent edge`,
     `${Math.round(confidence * 100)}% confidence`,
     `${Math.max(1, evidence?.items.length || 0)} evidence items`,
+    evidence ? `${Math.round(evidence.forecast.officialCoverage * 100)}% official coverage` : 'no official coverage',
+    evidence ? `${Math.round(evidence.diagnostics.contradictionScore * 100)}% contradiction risk` : 'unknown contradiction risk',
     combinedDepth >= 500_000 ? 'deep liquidity signal' : 'thin liquidity discount',
     deadlineHours <= 72 ? 'near-deadline urgency' : 'standard deadline window',
   ]
 
   return {
     amount: formatAmount(clamp(price, MIN_REPORT_PRICE, MAX_REPORT_PRICE)),
-    model: 'trench-value-v1' as const,
+    model: 'trench-value-v2' as const,
     minAmount: formatAmount(MIN_REPORT_PRICE),
     maxAmount: formatAmount(MAX_REPORT_PRICE),
     score: Number(score.toFixed(3)),
@@ -85,6 +91,9 @@ function catalystSet(market: Market, evidence?: EvidenceBrief) {
       .filter((item) => item.stance === 'supports-yes')
       .slice(0, 2)
       .map((item) => `${item.source}: ${item.title}`) || []
+  const monitorCatalyst = evidence?.monitoring[0]
+    ? `Monitor: ${evidence.monitoring[0].trigger}`
+    : undefined
   const deadlineHours = Math.max(
     1,
     Math.round((new Date(market.endDate).getTime() - Date.now()) / 3_600_000),
@@ -92,6 +101,7 @@ function catalystSet(market: Market, evidence?: EvidenceBrief) {
 
   return [
     ...evidenceCatalysts,
+    ...(monitorCatalyst ? [monitorCatalyst] : []),
     ...base.slice(0, 2),
     `${deadlineHours}h remaining until resolution pressure peaks`,
   ].slice(0, 4)
@@ -104,12 +114,15 @@ function riskSet(market: Market, evidence?: EvidenceBrief) {
       .filter((item) => item.stance === 'supports-no')
       .slice(0, 2)
       .map((item) => `${item.source}: ${item.title}`) || []
+  const diagnosticRisk = evidence
+    ? `${evidence.diagnostics.manipulationRisk} manipulation risk / ${Math.round(evidence.diagnostics.contradictionScore * 100)}% contradiction`
+    : undefined
   const liquidityFlag =
     market.liquidity < 100_000
       ? 'Low liquidity can distort executable edge'
       : 'Position sizing must respect order-book depth'
 
-  return [...evidenceRisks, ...base.slice(0, 2), liquidityFlag].slice(0, 4)
+  return [...evidenceRisks, ...(diagnosticRisk ? [diagnosticRisk] : []), ...base.slice(0, 2), liquidityFlag].slice(0, 4)
 }
 
 function evidenceSourceSet(market: Market, evidence: EvidenceBrief) {
@@ -117,6 +130,10 @@ function evidenceSourceSet(market: Market, evidence: EvidenceBrief) {
 
   for (const item of evidence.items.slice(0, 5)) {
     sources.push(`${item.source}: ${item.title}`)
+  }
+
+  for (const source of evidence.officialSources.filter((item) => item.status === 'hit').slice(0, 3)) {
+    sources.push(`${source.label}: official source hit`)
   }
 
   if (market.slug) {
@@ -130,7 +147,7 @@ function thesisFor(market: Market, edgeBps: number, evidence?: EvidenceBrief) {
   if (evidence) {
     const edgeDirection = edgeBps > 0 ? 'above' : edgeBps < 0 ? 'below' : 'near'
 
-    return `${evidence.summary} The evidence engine places fair value ${edgeDirection} the traded market after checking ${evidence.items.length} source items, base-rate context, liquidity depth, deadline pressure, and skeptic objections.`
+    return `${evidence.summary} V2 places fair value ${edgeDirection} the traded market after checking ${evidence.items.length} source items, ${evidence.officialSources.length} official-source targets, consensus, contradiction, liquidity depth, deadline pressure, and skeptic objections.`
   }
 
   const edgeDirection = edgeBps > 0 ? 'above' : edgeBps < 0 ? 'below' : 'near'
@@ -172,9 +189,11 @@ function evidenceReportHash(market: Market, evidence: EvidenceBrief) {
   const evidenceSeed = evidence.items
     .map((item) => `${item.source}:${item.title}:${item.impact}`)
     .join('|')
+  const officialSeed = evidence.officialSources.map((source) => `${source.label}:${source.status}`).join('|')
+  const monitoringSeed = evidence.monitoring.map((item) => item.trigger).join('|')
 
   return hashHex(
-    `report:${market.id}:${market.title}:${evidence.forecast.fairPrice}:${evidence.forecast.confidence}:${evidence.summary}:${evidenceSeed}`,
+    `report:${market.id}:${market.title}:${evidence.version}:${evidence.forecast.fairPrice}:${evidence.forecast.confidence}:${evidence.summary}:${JSON.stringify(evidence.diagnostics)}:${officialSeed}:${monitoringSeed}:${evidenceSeed}`,
     32,
   )
 }
@@ -187,15 +206,27 @@ export async function runAnalystAgent(market: Market): Promise<AgentReport> {
   const reportHash = evidenceReportHash(market, evidence)
   const runs: AgentRun[] = [
     {
+      agent: 'Source Agent',
+      status: evidence.officialSources.some((source) => source.status === 'hit') ? 'live' : 'simulated',
+      summary: `Targeted ${evidence.officialSources.length} official sources and found ${evidence.officialSources.filter((source) => source.status === 'hit').length} direct hits.`,
+      artifact: evidence.officialSources[0]?.label || evidence.plan.category,
+    },
+    {
       agent: 'Research Agent',
       status: evidence.items.some((item) => item.kind !== 'fallback') ? 'live' : 'simulated',
-      summary: `Built a research plan and scored ${evidence.items.length} evidence items across ${evidence.plan.category} context.`,
+      summary: `Built a V2 research plan for a ${evidence.plan.eventType} market and scored ${evidence.items.length} evidence items.`,
       artifact: evidence.plan.queries[0],
+    },
+    {
+      agent: 'Forecast Agent',
+      status: 'live',
+      summary: `${evidence.diagnostics.consensus} consensus, ${evidence.diagnostics.liquidityGrade} liquidity, ${Math.round(evidence.diagnostics.contradictionScore * 100)}% contradiction score.`,
+      artifact: `${Math.round(evidence.forecast.fairPrice * 100)}% fair`,
     },
     {
       agent: 'Analyst Agent',
       status: 'live',
-      summary: `Forecasted ${Math.round(fairPrice * 100)}% fair value from evidence, liquidity, deadline pressure, and base rates.`,
+      summary: `Forecasted ${Math.round(fairPrice * 100)}% fair value after confidence cap ${Math.round(evidence.forecast.confidenceCap * 100)}%.`,
       artifact: reportHash,
     },
     {

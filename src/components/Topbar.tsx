@@ -4,11 +4,18 @@ type TopbarProps = {
   query: string
   walletAddress?: string
   walletName?: string
+  walletOptions: Array<{
+    uuid: string
+    name: string
+    icon?: string
+    rdns?: string
+  }>
   walletStatus: 'idle' | 'connecting' | 'connected'
   walletMenuOpen: boolean
   onQueryChange: (query: string) => void
   onWalletConnect: () => void
   onWalletMenuToggle: () => void
+  onWalletOptionSelect: (walletUuid: string) => void
   onWalletCopy: () => void
   onWalletSwitch: () => void
   onWalletDisconnect: () => void
@@ -23,11 +30,13 @@ export function Topbar({
   query,
   walletAddress,
   walletName,
+  walletOptions,
   walletStatus,
   walletMenuOpen,
   onQueryChange,
   onWalletConnect,
   onWalletMenuToggle,
+  onWalletOptionSelect,
   onWalletCopy,
   onWalletSwitch,
   onWalletDisconnect,
@@ -74,21 +83,46 @@ export function Topbar({
         >
           {walletLabel}
         </button>
-        {walletAddress && walletMenuOpen ? (
+        {walletMenuOpen && (walletAddress || walletOptions.length > 0) ? (
           <div className="wallet-menu">
-            <div className="wallet-menu-heading">
-              <span>{walletName || 'Wallet'}</span>
-              <strong>{shortAddress(walletAddress)}</strong>
-            </div>
-            <button type="button" onClick={onWalletCopy}>
-              Copy address
-            </button>
-            <button type="button" onClick={onWalletSwitch}>
-              Change wallet
-            </button>
-            <button type="button" onClick={onWalletDisconnect}>
-              Disconnect
-            </button>
+            {walletAddress ? (
+              <>
+                <div className="wallet-menu-heading">
+                  <span>{walletName || 'Wallet'}</span>
+                  <strong>{shortAddress(walletAddress)}</strong>
+                </div>
+                <button type="button" onClick={onWalletCopy}>
+                  Copy address
+                </button>
+                <button type="button" onClick={onWalletSwitch}>
+                  Change wallet
+                </button>
+                <button type="button" onClick={onWalletDisconnect}>
+                  Disconnect
+                </button>
+              </>
+            ) : (
+              <>
+                <div className="wallet-menu-heading">
+                  <span>Wallets found</span>
+                  <strong>Choose provider</strong>
+                </div>
+                {walletOptions.map((wallet) => (
+                  <button
+                    className="wallet-option"
+                    type="button"
+                    key={wallet.uuid}
+                    onClick={() => onWalletOptionSelect(wallet.uuid)}
+                  >
+                    {wallet.icon ? <img src={wallet.icon} alt="" /> : <span aria-hidden="true" />}
+                    <span>
+                      <strong>{wallet.name}</strong>
+                      {wallet.rdns ? <small>{wallet.rdns}</small> : null}
+                    </span>
+                  </button>
+                ))}
+              </>
+            )}
           </div>
         ) : null}
       </div>

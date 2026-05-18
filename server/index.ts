@@ -127,11 +127,13 @@ function reportForClient(report: AgentReport) {
             event: 'locked',
             deadline: 'locked',
             category: 'locked',
+            eventType: 'general',
             entities: [],
             queries: [],
             resolutionNotes: [],
           },
           items: [],
+          officialSources: [],
           skeptic: [],
           summary: 'Evidence packet is locked until x402 payment succeeds.',
           forecast: {
@@ -141,8 +143,21 @@ function reportForClient(report: AgentReport) {
             deadlineDelta: 0,
             fairPrice: report.marketPrice,
             confidence: 0,
+            confidenceCap: 0,
             evidenceQuality: 0,
+            officialCoverage: 0,
             baseRate: 'locked',
+          },
+          diagnostics: {
+            eventType: 'general',
+            consensus: 'thin',
+            contradictionScore: 0,
+            sourceDiversity: 0,
+            liquidityGrade: 'fragile',
+            deadlinePressure: 'normal',
+            manipulationRisk: 'high',
+            confidenceCap: 0,
+            officialCoverage: 0,
           },
           recommendation: {
             ...report.evidence.recommendation,
@@ -151,6 +166,7 @@ function reportForClient(report: AgentReport) {
             maxEntry: 'locked',
             invalidation: 'locked',
           },
+          monitoring: [],
         }
       : undefined,
     runs: report.runs.map((run) => ({
@@ -338,7 +354,7 @@ app.get('/api/health', (_request, response) => {
       arcWriterConfigured: arcWriterConfigured(),
       facilitatorUrl: FACILITATOR_URL,
       network: 'arcTestnet',
-      pricingModel: 'trench-value-v1',
+      pricingModel: 'trench-value-v2',
     },
   })
 })

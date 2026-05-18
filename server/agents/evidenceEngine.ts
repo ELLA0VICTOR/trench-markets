@@ -1,5 +1,5 @@
 import { buildFairPrice, clamp, edgeBpsFor, signalFor } from '../lib/math.js'
-import type { EvidenceBrief, EvidenceItem, Market, Signal } from '../types.js'
+import type { EvidenceBrief, EvidenceItem, EvidenceSourceTarget, Market, Signal } from '../types.js'
 
 type RawEvidence = {
   title: string
@@ -7,10 +7,11 @@ type RawEvidence = {
   url?: string
   publishedAt?: string
   summary?: string
-  kind: 'news' | 'reference' | 'developer' | 'fallback'
+  kind: EvidenceItem['kind']
 }
 
 type EvidencePlan = EvidenceBrief['plan']
+type EventType = EvidencePlan['eventType']
 
 const STOP_WORDS = new Set([
   'will',
@@ -80,6 +81,18 @@ const AGAINST_TERMS = [
   'sanction',
 ]
 
+const AMBIGUITY_TERMS = [
+  'alleged',
+  'could',
+  'expected',
+  'may',
+  'might',
+  'reportedly',
+  'rumor',
+  'sources',
+  'unconfirmed',
+]
+
 const HIGH_RELIABILITY_DOMAINS = [
   '.gov',
   '.edu',
@@ -93,6 +106,150 @@ const HIGH_RELIABILITY_DOMAINS = [
   'arc.network',
   'investor.',
 ]
+
+const ENTITY_SOURCE_MAP: Record<string, Array<Omit<EvidenceSourceTarget, 'status'>>> = {
+  apple: [
+    {
+      label: 'Apple Newsroom',
+      url: 'https://www.apple.com/newsroom/',
+      reason: 'Primary company announcements.',
+    },
+  ],
+  arc: [
+    {
+      label: 'Arc Network',
+      url: 'https://arc.network/',
+      reason: 'Primary Arc network updates.',
+    },
+    {
+      label: 'Arc Docs',
+      url: 'https://docs.arc.network/',
+      reason: 'Developer-facing Arc technical changes.',
+    },
+  ],
+  circle: [
+    {
+      label: 'Circle Newsroom',
+      url: 'https://www.circle.com/newsroom',
+      reason: 'Primary Circle product and stablecoin updates.',
+    },
+    {
+      label: 'Circle Developers',
+      url: 'https://developers.circle.com/',
+      reason: 'Developer API and Gateway changes.',
+    },
+  ],
+  fed: [
+    {
+      label: 'Federal Reserve',
+      url: 'https://www.federalreserve.gov/newsevents.htm',
+      reason: 'Primary Federal Reserve statements and calendars.',
+    },
+  ],
+  bls: [
+    {
+      label: 'Bureau of Labor Statistics',
+      url: 'https://www.bls.gov/news.release/',
+      reason: 'Primary US labor and inflation data releases.',
+    },
+  ],
+  bea: [
+    {
+      label: 'Bureau of Economic Analysis',
+      url: 'https://www.bea.gov/news',
+      reason: 'Primary US GDP and income data releases.',
+    },
+  ],
+  congress: [
+    {
+      label: 'US Congress',
+      url: 'https://www.congress.gov/',
+      reason: 'Primary bill text, actions, and vote records.',
+    },
+  ],
+  google: [
+    {
+      label: 'Google Blog',
+      url: 'https://blog.google/',
+      reason: 'Primary Google product announcements.',
+    },
+  ],
+  microsoft: [
+    {
+      label: 'Microsoft News',
+      url: 'https://news.microsoft.com/',
+      reason: 'Primary Microsoft announcements.',
+    },
+  ],
+  microstrategy: [
+    {
+      label: 'Strategy Investor Relations',
+      url: 'https://www.strategy.com/investor-relations',
+      reason: 'Primary Strategy/MicroStrategy treasury and investor disclosures.',
+    },
+  ],
+  nato: [
+    {
+      label: 'NATO News',
+      url: 'https://www.nato.int/cps/en/natohq/news.htm',
+      reason: 'Primary NATO statements.',
+    },
+  ],
+  nvidia: [
+    {
+      label: 'NVIDIA Newsroom',
+      url: 'https://nvidianews.nvidia.com/',
+      reason: 'Primary NVIDIA announcements.',
+    },
+    {
+      label: 'NVIDIA Investor Relations',
+      url: 'https://investor.nvidia.com/news/',
+      reason: 'Material company disclosures.',
+    },
+  ],
+  openai: [
+    {
+      label: 'OpenAI News',
+      url: 'https://openai.com/news/',
+      reason: 'Primary OpenAI announcements.',
+    },
+  ],
+  treasury: [
+    {
+      label: 'US Treasury',
+      url: 'https://home.treasury.gov/news/press-releases',
+      reason: 'Primary sanctions, treasury, and public-finance announcements.',
+    },
+  ],
+  uk: [
+    {
+      label: 'UK Government',
+      url: 'https://www.gov.uk/search/news-and-communications',
+      reason: 'Primary UK government announcements.',
+    },
+  ],
+  whitehouse: [
+    {
+      label: 'White House',
+      url: 'https://www.whitehouse.gov/briefing-room/',
+      reason: 'Primary US executive announcements.',
+    },
+  ],
+  sec: [
+    {
+      label: 'SEC Press Releases',
+      url: 'https://www.sec.gov/newsroom/press-releases',
+      reason: 'Primary US securities regulator updates.',
+    },
+  ],
+  tesla: [
+    {
+      label: 'Tesla Investor Relations',
+      url: 'https://ir.tesla.com/',
+      reason: 'Primary Tesla investor disclosures.',
+    },
+  ],
+}
 
 const NEWS_DOMAINS = [
   'apnews.com',
@@ -134,6 +291,7 @@ function hostFor(url?: string) {
 function reliabilityFor(item: RawEvidence) {
   const host = hostFor(item.url)
 
+  if (item.kind === 'official') return 0.95
   if (HIGH_RELIABILITY_DOMAINS.some((domain) => host.includes(domain))) return 0.92
   if (NEWS_DOMAINS.some((domain) => host.includes(domain))) return 0.82
   if (item.kind === 'reference') return 0.72
@@ -158,16 +316,18 @@ function stanceFor(raw: RawEvidence, relevance: number, reliability: number) {
   const text = `${raw.title}. ${raw.summary || ''}`
   const support = countTerms(text, SUPPORT_TERMS)
   const against = countTerms(text, AGAINST_TERMS)
+  const ambiguity = countTerms(text, AMBIGUITY_TERMS)
   const diff = support - against
 
   if (Math.abs(diff) < 1) {
     return {
-      stance: 'neutral' as const,
+      stance: ambiguity > 0 ? ('ambiguous' as const) : ('neutral' as const),
       impact: 0,
     }
   }
 
-  const impact = clamp(diff * 0.022 * relevance * reliability, -0.075, 0.075)
+  const ambiguityDiscount = ambiguity > 0 ? 0.72 : 1
+  const impact = clamp(diff * 0.022 * relevance * reliability * ambiguityDiscount, -0.075, 0.075)
 
   return {
     stance: impact > 0 ? ('supports-yes' as const) : ('supports-no' as const),
@@ -204,7 +364,7 @@ async function fetchJson(url: string, ms = 4200) {
       signal: timeout.signal,
       headers: {
         accept: 'application/json',
-        'user-agent': 'trench-markets-evidence-engine/1.0',
+        'user-agent': 'trench-markets-evidence-engine/2.0',
       },
     })
 
@@ -309,6 +469,40 @@ async function fetchDeveloperEvidence(query: string): Promise<RawEvidence[]> {
     }))
 }
 
+async function fetchOfficialEvidence(target: EvidenceSourceTarget, query: string): Promise<RawEvidence[]> {
+  const host = hostFor(target.url)
+  if (!host) return []
+
+  const url = new URL('https://api.gdeltproject.org/api/v2/doc/doc')
+  url.searchParams.set('query', `${query} domain:${host}`)
+  url.searchParams.set('mode', 'artlist')
+  url.searchParams.set('format', 'json')
+  url.searchParams.set('maxrecords', '4')
+  url.searchParams.set('sort', 'HybridRel')
+  url.searchParams.set('timespan', '12Months')
+
+  const data = (await fetchJson(url.toString(), 3600)) as {
+    articles?: Array<{
+      title?: string
+      url?: string
+      seendate?: string
+      sourceCommonName?: string
+      domain?: string
+    }>
+  }
+
+  return (data.articles || [])
+    .filter((article) => article.title)
+    .map((article) => ({
+      title: String(article.title),
+      source: target.label,
+      url: article.url || target.url,
+      publishedAt: article.seendate,
+      summary: target.reason,
+      kind: 'official' as const,
+    }))
+}
+
 function fallbackEvidence(market: Market): RawEvidence[] {
   return [
     {
@@ -348,12 +542,18 @@ function entityCandidates(text: string) {
       [
         'bitcoin',
         'btc',
+        'microstrategy',
+        'strategy',
         'ethereum',
         'eth',
         'circle',
         'arc',
         'usdc',
         'fed',
+        'bls',
+        'bea',
+        'treasury',
+        'congress',
         'nvidia',
         'openai',
         'apple',
@@ -391,6 +591,23 @@ function categoryFor(market: Market) {
   return market.category.toLowerCase() || 'general'
 }
 
+function eventTypeFor(text: string, category: string): EventType {
+  const normalized = text.toLowerCase()
+
+  if (/\b(election|vote|wins?|nominee|president|senate|parliament)\b/.test(normalized)) return 'election'
+  if (/\b(above|below|over|under|reach|clear|exceed|close|price|transactions?|volume|threshold)\b/.test(normalized)) {
+    return 'threshold'
+  }
+  if (/\b(approve|ban|bill|court|law|policy|regulation|rule|sanction|tariff)\b/.test(normalized) || category === 'policy') {
+    return 'policy'
+  }
+  if (/\b(ipo|launch|release|ship|deploy|mainnet|testnet)\b/.test(normalized)) return 'launch'
+  if (/\b(announce|announces|announcement|statement|earnings|report|files?|sells?|buys?|acquires?|merger)\b/.test(normalized)) return 'announcement'
+  if (category === 'crypto' && /\b(btc|bitcoin|eth|ethereum|usd|\$)\b/.test(normalized)) return 'price'
+
+  return 'general'
+}
+
 function eventFor(title: string) {
   return title
     .replace(/\?+$/g, '')
@@ -405,9 +622,11 @@ function researchPlanFor(market: Market): EvidencePlan {
   const keywords = wordsFor(event).slice(0, 8)
   const primary = [...entities.slice(0, 3), ...keywords.slice(0, 5)].join(' ')
   const category = categoryFor(market)
+  const eventType = eventTypeFor(`${market.title} ${market.description || ''}`, category)
   const queries = [
     primary || event,
     `${event} latest`,
+    `${event} official`,
     `${entities.slice(0, 2).join(' ')} ${category} news`.trim(),
   ]
     .map((query) => query.replace(/\s+/g, ' ').trim())
@@ -422,6 +641,7 @@ function researchPlanFor(market: Market): EvidencePlan {
     event,
     deadline: dateLabel(market.endDate),
     category,
+    eventType,
     entities,
     queries: [...new Set(queries)].slice(0, 4),
     resolutionNotes,
@@ -429,12 +649,79 @@ function researchPlanFor(market: Market): EvidencePlan {
 }
 
 function baseRateFor(plan: EvidencePlan) {
+  if (plan.eventType === 'announcement') return 'Announcement markets need primary-source confirmation; rumor is discounted unless multiple reliable sources agree.'
+  if (plan.eventType === 'threshold') return 'Threshold markets are path-dependent; liquidity and deadline compression carry more weight than generic headlines.'
+  if (plan.eventType === 'policy') return 'Policy markets require official text or calendar evidence; press commentary is treated as weak signal.'
+  if (plan.eventType === 'launch') return 'Launch markets favor official release notes, deployment artifacts, and developer adoption evidence.'
   if (plan.category === 'crypto') return 'Crypto event markets overreact to headlines; require liquidity confirmation.'
   if (plan.category === 'macro') return 'Macro events move on official data calendars; rumor has lower weight.'
   if (plan.category === 'policy') return 'Policy markets need primary-source confirmation and are vulnerable to wording ambiguity.'
   if (plan.category === 'technology') return 'Technology/news markets favor fresh primary announcements and developer adoption signals.'
 
   return 'General event market; forecast starts from the traded price and moves only on sourced evidence.'
+}
+
+function officialTargetsFor(plan: EvidencePlan): EvidenceSourceTarget[] {
+  const lowerEntities = plan.entities.map((entity) => entity.toLowerCase())
+  const targets: Array<Omit<EvidenceSourceTarget, 'status'>> = []
+
+  for (const entity of lowerEntities) {
+    for (const [key, value] of Object.entries(ENTITY_SOURCE_MAP)) {
+      if (entity.includes(key) || key.includes(entity)) {
+        targets.push(...value)
+      }
+    }
+  }
+
+  if (plan.category === 'macro') {
+    targets.push(...ENTITY_SOURCE_MAP.fed, ...ENTITY_SOURCE_MAP.bls, ...ENTITY_SOURCE_MAP.bea, ...ENTITY_SOURCE_MAP.treasury)
+  }
+
+  if (plan.category === 'policy') {
+    targets.push(
+      ...ENTITY_SOURCE_MAP.whitehouse,
+      ...ENTITY_SOURCE_MAP.congress,
+      {
+        label: 'US Federal Register',
+        url: 'https://www.federalregister.gov/',
+        reason: 'Primary US rulemaking and official notices.',
+      },
+      {
+        label: 'SEC Press Releases',
+        url: 'https://www.sec.gov/newsroom/press-releases',
+        reason: 'Primary US securities regulator updates.',
+      },
+    )
+  }
+
+  if (plan.category === 'crypto') {
+    targets.push(
+      {
+        label: 'SEC Press Releases',
+        url: 'https://www.sec.gov/newsroom/press-releases',
+        reason: 'Primary ETF/enforcement regulator updates.',
+      },
+      {
+        label: 'CFTC Press Room',
+        url: 'https://www.cftc.gov/PressRoom/PressReleases',
+        reason: 'Primary derivatives regulator updates.',
+      },
+    )
+  }
+
+  if (plan.category === 'technology') {
+    targets.push(
+      {
+        label: 'SEC EDGAR',
+        url: 'https://www.sec.gov/edgar/search/',
+        reason: 'Material public-company filings.',
+      },
+    )
+  }
+
+  return [...new Map(targets.map((target) => [target.url, target])).values()]
+    .slice(0, 5)
+    .map((target) => ({ ...target, status: 'searched' as const }))
 }
 
 function microstructureDeltaFor(market: Market) {
@@ -444,6 +731,65 @@ function microstructureDeltaFor(market: Market) {
   const deterministicPrior = buildFairPrice(market.title, market.price)
 
   return clamp((deterministicPrior - market.price) * (0.16 + depth * 0.18), -0.055, 0.055)
+}
+
+function liquidityGradeFor(market: Market): EvidenceBrief['diagnostics']['liquidityGrade'] {
+  const depth = market.liquidity + market.volume24h * 0.35
+
+  if (depth >= 1_500_000) return 'deep'
+  if (depth >= 350_000) return 'healthy'
+  if (depth >= 90_000) return 'thin'
+  return 'fragile'
+}
+
+function deadlinePressureFor(market: Market): EvidenceBrief['diagnostics']['deadlinePressure'] {
+  const daysUntilEnd = (new Date(market.endDate).getTime() - Date.now()) / 86_400_000
+
+  if (!Number.isFinite(daysUntilEnd)) return 'normal'
+  if (daysUntilEnd <= 0) return 'expired'
+  if (daysUntilEnd <= 2) return 'urgent'
+  if (daysUntilEnd <= 10) return 'near'
+  if (daysUntilEnd > 120) return 'long'
+  return 'normal'
+}
+
+function sourceDiversityFor(items: EvidenceItem[]) {
+  const external = items.filter((item) => item.kind !== 'fallback')
+  const uniqueSources = new Set(external.map((item) => hostFor(item.url) || item.source.toLowerCase())).size
+
+  return clamp(uniqueSources / 5, 0, 1)
+}
+
+function consensusFor(items: EvidenceItem[]): EvidenceBrief['diagnostics']['consensus'] {
+  const yes = items
+    .filter((item) => item.stance === 'supports-yes')
+    .reduce((sum, item) => sum + Math.abs(item.impact), 0)
+  const no = items
+    .filter((item) => item.stance === 'supports-no')
+    .reduce((sum, item) => sum + Math.abs(item.impact), 0)
+
+  if (yes + no < 0.018) return 'thin'
+  if (Math.abs(yes - no) < 0.025) return 'mixed'
+  return yes > no ? 'pro-yes' : 'pro-no'
+}
+
+function contradictionScoreFor(items: EvidenceItem[]) {
+  const yes = items.some((item) => item.stance === 'supports-yes')
+  const no = items.some((item) => item.stance === 'supports-no')
+  const ambiguous = items.filter((item) => item.stance === 'ambiguous').length
+
+  return clamp((yes && no ? 0.46 : 0) + ambiguous * 0.08, 0, 0.9)
+}
+
+function manipulationRiskFor(
+  market: Market,
+  contradictionScore: number,
+): EvidenceBrief['diagnostics']['manipulationRisk'] {
+  const grade = liquidityGradeFor(market)
+
+  if (grade === 'fragile' || (grade === 'thin' && contradictionScore > 0.35)) return 'high'
+  if (grade === 'thin' || contradictionScore > 0.45) return 'medium'
+  return 'low'
 }
 
 function deadlineDeltaFor(market: Market, evidenceDelta: number) {
@@ -464,6 +810,47 @@ function qualityFor(items: EvidenceItem[]) {
   const countBoost = clamp(items.length / 8, 0, 1) * 0.18
 
   return clamp(weighted / items.length + countBoost, 0.2, 0.95)
+}
+
+function confidenceCapFor(
+  plan: EvidencePlan,
+  items: EvidenceItem[],
+  contradictionScore: number,
+  liquidityGrade: EvidenceBrief['diagnostics']['liquidityGrade'],
+) {
+  const officialHits = items.filter((item) => item.kind === 'official').length
+  const externalHits = items.filter((item) => item.kind !== 'fallback').length
+  let cap = 0.91
+
+  if (['announcement', 'policy', 'launch'].includes(plan.eventType) && officialHits === 0) {
+    cap = Math.min(cap, 0.68)
+  }
+
+  if (externalHits < 3) {
+    cap = Math.min(cap, 0.64)
+  }
+
+  if (contradictionScore > 0.45) {
+    cap = Math.min(cap, 0.62)
+  }
+
+  if (liquidityGrade === 'fragile') {
+    cap = Math.min(cap, 0.58)
+  }
+
+  return cap
+}
+
+function officialCoverageFor(items: EvidenceItem[], sources: EvidenceSourceTarget[]) {
+  if (sources.length === 0) return 0
+
+  const hits = new Set(
+    items
+      .filter((item) => item.kind === 'official')
+      .map((item) => hostFor(item.url) || item.source.toLowerCase()),
+  )
+
+  return clamp(hits.size / sources.length, 0, 1)
 }
 
 function signalEntry(signal: Signal, fairPrice: number, confidence: number) {
@@ -497,6 +884,10 @@ function skepticNotes(plan: EvidencePlan, items: EvidenceItem[], market: Market)
     notes.push('External evidence coverage is thin, so confidence is capped until more independent sources appear.')
   }
 
+  if (['announcement', 'policy', 'launch'].includes(plan.eventType) && !items.some((item) => item.kind === 'official')) {
+    notes.push('No direct official-source hit was found, so announcement/policy evidence is treated as provisional.')
+  }
+
   if (market.liquidity < 100_000) {
     notes.push('Thin liquidity can make the apparent edge hard to execute without moving the price.')
   }
@@ -506,6 +897,49 @@ function skepticNotes(plan: EvidencePlan, items: EvidenceItem[], market: Market)
   }
 
   return notes
+}
+
+function monitoringTriggers(
+  plan: EvidencePlan,
+  market: Market,
+  sources: EvidenceSourceTarget[],
+  diagnostics: EvidenceBrief['diagnostics'],
+) {
+  const consensusIsYes = diagnostics.consensus === 'pro-yes'
+  const triggerPrice = clamp(market.price * 100 + (consensusIsYes ? 8 : -8), 1, 99)
+  const triggers = [
+    {
+      trigger: `Price moves ${consensusIsYes ? 'above' : 'below'} ${Math.round(triggerPrice)}c`,
+      reason: 'A fast price move can erase the edge or confirm that new information has arrived.',
+    },
+    {
+      trigger: `New official update for ${plan.entities[0] || plan.category}`,
+      reason: 'Primary-source evidence can override the current forecast.',
+    },
+  ]
+
+  if (sources[0]) {
+    triggers.push({
+      trigger: `${sources[0].label} publishes a relevant update`,
+      reason: sources[0].reason,
+    })
+  }
+
+  if (diagnostics.manipulationRisk !== 'low') {
+    triggers.push({
+      trigger: 'Liquidity drops or one-sided volume spikes',
+      reason: 'Thin markets can manufacture apparent signal without durable evidence.',
+    })
+  }
+
+  if (diagnostics.contradictionScore > 0.35) {
+    triggers.push({
+      trigger: 'A high-reliability source contradicts the current thesis',
+      reason: 'Contradiction is the fastest way for this report to become stale.',
+    })
+  }
+
+  return triggers.slice(0, 4)
 }
 
 function verdictFor(signal: Signal, edge: number, confidence: number, quality: number): EvidenceBrief['verdict'] {
@@ -522,20 +956,45 @@ function itemSummary(item: RawEvidence) {
 
 async function gatherRawEvidence(plan: EvidencePlan, market: Market) {
   const query = plan.queries[0] || market.title
+  const officialSources = officialTargetsFor(plan)
+  const officialTasks = officialSources.map((target) =>
+    fetchOfficialEvidence(target, query).then((items) => ({
+      target,
+      items,
+    })),
+  )
   const tasks: Array<Promise<RawEvidence[]>> = [
     fetchNewsEvidence(query),
     fetchReferenceEvidence(query),
     fetchDeveloperEvidence(`${plan.entities.slice(0, 2).join(' ')} ${plan.category}`.trim() || query),
   ]
-  const settled = await Promise.allSettled(tasks)
+  const [officialSettled, settled] = await Promise.all([
+    Promise.allSettled(officialTasks),
+    Promise.allSettled(tasks),
+  ])
+  const officialEvidence = officialSettled.flatMap((result) =>
+    result.status === 'fulfilled' ? result.value.items : [],
+  )
+  const officialSourcesWithStatus = officialSources.map((source) => {
+    const host = hostFor(source.url)
+    const hit = officialEvidence.some((item) => hostFor(item.url) === host || item.source === source.label)
+
+    return {
+      ...source,
+      status: hit ? ('hit' as const) : ('missing' as const),
+    }
+  })
   const external = settled.flatMap((result) => (result.status === 'fulfilled' ? result.value : []))
 
-  return dedupeEvidence([...external, ...fallbackEvidence(market)]).slice(0, 12)
+  return {
+    rawEvidence: dedupeEvidence([...officialEvidence, ...external, ...fallbackEvidence(market)]).slice(0, 14),
+    officialSources: officialSourcesWithStatus,
+  }
 }
 
 export async function buildEvidenceBrief(market: Market): Promise<EvidenceBrief> {
   const plan = researchPlanFor(market)
-  const rawEvidence = await gatherRawEvidence(plan, market)
+  const { rawEvidence, officialSources } = await gatherRawEvidence(plan, market)
   const items = rawEvidence.map((raw) => {
     const reliability = reliabilityFor(raw)
     const relevance = relevanceFor(plan, raw)
@@ -555,30 +1014,63 @@ export async function buildEvidenceBrief(market: Market): Promise<EvidenceBrief>
     } satisfies EvidenceItem
   })
   const quality = qualityFor(items)
-  const evidenceDelta = clamp(
-    items.reduce((sum, item) => sum + item.impact, 0),
-    -0.24,
-    0.24,
-  )
+  const sourceDiversity = sourceDiversityFor(items)
+  const consensus = consensusFor(items)
+  const contradictionScore = contradictionScoreFor(items)
+  const liquidityGrade = liquidityGradeFor(market)
+  const deadlinePressure = deadlinePressureFor(market)
+  const manipulationRisk = manipulationRiskFor(market, contradictionScore)
+  const officialCoverage = officialCoverageFor(items, officialSources)
+  const evidenceRawDelta = items.reduce((sum, item) => sum + item.impact, 0)
+  const contradictionDiscount = 1 - contradictionScore * 0.45
+  const diversityMultiplier = 0.9 + sourceDiversity * 0.18
+  const evidenceDelta = clamp(evidenceRawDelta * contradictionDiscount * diversityMultiplier, -0.24, 0.24)
   const microstructureDelta = microstructureDeltaFor(market)
   const deadlineDelta = deadlineDeltaFor(market, evidenceDelta)
   const fairPrice = clamp(market.price + evidenceDelta + microstructureDelta + deadlineDelta, 0.03, 0.97)
   const edge = fairPrice - market.price
-  const confidence = clamp(0.44 + Math.abs(edge) * 1.7 + quality * 0.25 + Math.min(market.liquidity / 900_000, 1) * 0.08, 0.45, 0.93)
-  const action = signalFor(market.price, fairPrice)
+  const confidenceCap = confidenceCapFor(plan, items, contradictionScore, liquidityGrade)
+  const rawConfidence = clamp(
+    0.42 +
+      Math.abs(edge) * 1.65 +
+      quality * 0.2 +
+      sourceDiversity * 0.08 +
+      officialCoverage * 0.07 +
+      Math.min(market.liquidity / 900_000, 1) * 0.06 -
+      contradictionScore * 0.12,
+    0.42,
+    0.93,
+  )
+  const confidence = Math.min(rawConfidence, confidenceCap)
+  const directionalAction = signalFor(market.price, fairPrice)
+  const action = confidence < 0.54 ? ('PASS' as const) : directionalAction
   const skeptic = skepticNotes(plan, items, market)
   const verdict = verdictFor(action, edge, confidence, quality)
+  const diagnostics: EvidenceBrief['diagnostics'] = {
+    eventType: plan.eventType,
+    consensus,
+    contradictionScore: Number(contradictionScore.toFixed(4)),
+    sourceDiversity: Number(sourceDiversity.toFixed(4)),
+    liquidityGrade,
+    deadlinePressure,
+    manipulationRisk,
+    confidenceCap: Number(confidenceCap.toFixed(4)),
+    officialCoverage: Number(officialCoverage.toFixed(4)),
+  }
+  const monitoring = monitoringTriggers(plan, market, officialSources, diagnostics)
   const topEvidence = items
     .filter((item) => item.stance !== 'neutral')
     .sort((left, right) => Math.abs(right.impact) - Math.abs(left.impact))[0]
   const summary =
     topEvidence && action !== 'PASS'
-      ? `${action} because ${topEvidence.source} evidence moves fair value to ${Math.round(fairPrice * 100)}%, with ${Math.round(confidence * 100)}% confidence after liquidity and deadline checks.`
-      : `PASS or watch closely: evidence keeps fair value near ${Math.round(fairPrice * 100)}%, so the market needs stronger confirmation before size.`
+      ? `${action} from V2 consensus ${consensus}: ${topEvidence.source} moves fair value to ${Math.round(fairPrice * 100)}%, capped at ${Math.round(confidence * 100)}% confidence after official-source, contradiction, liquidity, and deadline checks.`
+      : `PASS or watch closely: V2 evidence keeps fair value near ${Math.round(fairPrice * 100)}%, with ${consensus} consensus and ${Math.round(officialCoverage * 100)}% official-source coverage.`
 
   return {
+    version: 'v2',
     plan,
     items,
+    officialSources,
     forecast: {
       prior: Number(market.price.toFixed(4)),
       evidenceDelta: Number(evidenceDelta.toFixed(4)),
@@ -586,9 +1078,12 @@ export async function buildEvidenceBrief(market: Market): Promise<EvidenceBrief>
       deadlineDelta: Number(deadlineDelta.toFixed(4)),
       fairPrice: Number(fairPrice.toFixed(4)),
       confidence: Number(confidence.toFixed(4)),
+      confidenceCap: Number(confidenceCap.toFixed(4)),
       evidenceQuality: Number(quality.toFixed(4)),
+      officialCoverage: Number(officialCoverage.toFixed(4)),
       baseRate: baseRateFor(plan),
     },
+    diagnostics,
     recommendation: {
       action,
       positionSize: positionSize(action, edge, confidence, quality),
@@ -598,6 +1093,7 @@ export async function buildEvidenceBrief(market: Market): Promise<EvidenceBrief>
           ? 'Needs at least one fresh, high-reliability source or a meaningful price dislocation.'
           : `Invalidate if a primary source contradicts the ${plan.event} thesis or liquidity drops below executable depth.`,
     },
+    monitoring,
     skeptic,
     summary,
     verdict,

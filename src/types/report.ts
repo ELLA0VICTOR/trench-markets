@@ -3,7 +3,9 @@ import type { Signal } from './market'
 export type AgentRun = {
   agent:
     | 'Scout Agent'
+    | 'Source Agent'
     | 'Research Agent'
+    | 'Forecast Agent'
     | 'Analyst Agent'
     | 'Skeptic Agent'
     | 'Risk Agent'
@@ -17,7 +19,7 @@ export type AgentRun = {
 export type EvidenceItem = {
   title: string
   source: string
-  kind: 'news' | 'reference' | 'developer' | 'fallback'
+  kind: 'news' | 'reference' | 'developer' | 'official' | 'fallback'
   url?: string
   publishedAt?: string
   summary: string
@@ -27,16 +29,26 @@ export type EvidenceItem = {
   impact: number
 }
 
+export type EvidenceSourceTarget = {
+  label: string
+  url: string
+  reason: string
+  status: 'searched' | 'hit' | 'missing'
+}
+
 export type EvidenceBrief = {
+  version: 'v2'
   plan: {
     event: string
     deadline: string
     category: string
+    eventType: 'announcement' | 'threshold' | 'election' | 'policy' | 'price' | 'launch' | 'general'
     entities: string[]
     queries: string[]
     resolutionNotes: string[]
   }
   items: EvidenceItem[]
+  officialSources: EvidenceSourceTarget[]
   forecast: {
     prior: number
     evidenceDelta: number
@@ -44,8 +56,21 @@ export type EvidenceBrief = {
     deadlineDelta: number
     fairPrice: number
     confidence: number
+    confidenceCap: number
     evidenceQuality: number
+    officialCoverage: number
     baseRate: string
+  }
+  diagnostics: {
+    eventType: 'announcement' | 'threshold' | 'election' | 'policy' | 'price' | 'launch' | 'general'
+    consensus: 'pro-yes' | 'pro-no' | 'mixed' | 'thin'
+    contradictionScore: number
+    sourceDiversity: number
+    liquidityGrade: 'deep' | 'healthy' | 'thin' | 'fragile'
+    deadlinePressure: 'expired' | 'urgent' | 'near' | 'normal' | 'long'
+    manipulationRisk: 'low' | 'medium' | 'high'
+    confidenceCap: number
+    officialCoverage: number
   }
   recommendation: {
     action: Signal
@@ -53,6 +78,10 @@ export type EvidenceBrief = {
     maxEntry: string
     invalidation: string
   }
+  monitoring: Array<{
+    trigger: string
+    reason: string
+  }>
   skeptic: string[]
   summary: string
   verdict: 'strong' | 'actionable' | 'watchlist' | 'pass'
@@ -68,7 +97,7 @@ export type PaymentChallenge = {
   reportHash: string
   memo: string
   pricing: {
-    model: 'trench-value-v1'
+    model: 'trench-value-v2'
     minAmount: string
     maxAmount: string
     score: number

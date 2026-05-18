@@ -306,6 +306,47 @@ a {
   background: rgba(212, 255, 62, 0.08);
 }
 
+.wallet-option {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+}
+
+.wallet-option img,
+.wallet-option > span:first-child {
+  width: 22px;
+  height: 22px;
+}
+
+.wallet-option img {
+  display: block;
+}
+
+.wallet-option > span:first-child {
+  border: 1px solid var(--rule);
+  background: var(--surface);
+}
+
+.wallet-option strong,
+.wallet-option small {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.wallet-option strong {
+  color: var(--white);
+  font-size: 13px;
+}
+
+.wallet-option small {
+  margin-top: 2px;
+  color: var(--g600);
+  font-size: 10px;
+}
+
 .modal-backdrop {
   position: fixed;
   inset: 0;
@@ -1381,10 +1422,15 @@ dd {
   min-width: 0;
   padding: 14px;
   border-right: 1px solid var(--rule);
+  border-bottom: 1px solid var(--rule);
 }
 
-.evidence-metrics div:last-child {
+.evidence-metrics div:nth-child(4n) {
   border-right: 0;
+}
+
+.evidence-metrics div:nth-last-child(-n + 4) {
+  border-bottom: 0;
 }
 
 .evidence-metrics span,

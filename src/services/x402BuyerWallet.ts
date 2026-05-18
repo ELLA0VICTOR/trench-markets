@@ -26,6 +26,8 @@ type WalletProviderDetail = {
   provider: EthereumProvider
 }
 
+export type BrowserWalletOption = WalletProviderInfo
+
 export type BrowserWalletSession = {
   address: `0x${string}`
   walletName: string
@@ -148,6 +150,14 @@ function selectWalletForSession(wallets: WalletProviderDetail[], session?: Brows
   }
 
   return wallets.find((wallet) => walletMatchesSession(wallet, session))
+}
+
+function selectWalletByUuid(wallets: WalletProviderDetail[], walletUuid?: string) {
+  if (!walletUuid) {
+    return undefined
+  }
+
+  return wallets.find((wallet) => wallet.info.uuid === walletUuid)
 }
 
 function isReusableVerification(session: BrowserWalletSession, wallet: WalletProviderDetail, address: `0x${string}`) {
@@ -289,8 +299,12 @@ async function discoverWallets() {
   return [...announced.values()].sort((left, right) => walletRank(left) - walletRank(right))
 }
 
-async function ensureWallet() {
-  if (activeWallet) {
+export async function listBrowserWallets(): Promise<BrowserWalletOption[]> {
+  return (await discoverWallets()).map((wallet) => wallet.info)
+}
+
+async function ensureWallet(walletUuid?: string) {
+  if (activeWallet && (!walletUuid || activeWallet.info.uuid === walletUuid)) {
     return activeWallet
   }
 
@@ -300,7 +314,7 @@ async function ensureWallet() {
     throw new Error('No browser wallet found. Connect a wallet with an Arc Gateway balance.')
   }
 
-  activeWallet = selectWalletForSession(wallets, readStoredWalletSession()) || wallets[0]
+  activeWallet = selectWalletByUuid(wallets, walletUuid) || selectWalletForSession(wallets, readStoredWalletSession()) || wallets[0]
   return activeWallet
 }
 
@@ -451,8 +465,8 @@ async function signWalletVerification(provider: EthereumProvider, address: `0x${
   return assertHex(signature)
 }
 
-export async function connectBrowserWallet() {
-  const wallet = await ensureWallet()
+export async function connectBrowserWallet(walletUuid?: string) {
+  const wallet = await ensureWallet(walletUuid)
   const address = await connectBuyerWallet(wallet.provider)
   const existingSession = readStoredWalletSession()
   const canReuseVerification = existingSession

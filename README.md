@@ -2,14 +2,17 @@
 
 Trench is an agentic prediction-market intelligence desk for Agora Agents. Buyer agents can discover live markets, request paid analyst packets, satisfy an x402 USDC challenge, and queue report hashes for Arc proof publication.
 
-The current product focuses on a narrow but judge-visible loop: market discovery, autonomous scoring, paid report unlock, and proof-ready settlement metadata.
+The current V2 product focuses on a judge-visible loop: market discovery, evidence-backed autonomous scoring, paid report unlock, and proof-ready settlement metadata.
 
 ## Why It Exists
 
 Prediction markets are useful only when someone can continuously watch prices, liquidity, deadlines, and news-driven drift. Trench turns that work into an agent workflow:
 
 - **Scout Agent** ranks active markets by liquidity, volume, and deadline pressure.
-- **Analyst Agent** estimates fair probability, edge, confidence, catalysts, and risks.
+- **Source Agent** targets official sources, regulator pages, investor relations pages, and primary announcements when the market needs authority.
+- **Research Agent** fetches external evidence and scores relevance, reliability, stance, and ambiguity.
+- **Forecast Agent** turns evidence into fair value with consensus, contradiction, liquidity, deadline, and confidence-cap diagnostics.
+- **Analyst Agent** packages the signal, dynamic price, catalysts, risks, monitoring triggers, and locked report hash.
 - **Buyer Agent** requests locked reports and handles the x402 payment path.
 - **Arc Proof Agent** publishes, or queues, the report hash and signal metadata through `SignalRegistry`.
 
@@ -22,19 +25,22 @@ flowchart TD
   A[User or Buyer Agent Opens Trench] --> B[Scout Agent Fetches Polymarket Markets]
   B --> C[Markets Normalized and Ranked]
   C --> D[User Selects Market]
-  D --> E[Analyst Agent Builds Locked Report]
-  E --> F{Buyer Requests Report?}
-  F -- No --> G[Show Public Market Data Only]
-  F -- Yes --> H[x402 Challenge Issued]
-  H --> I{Circle Gateway Env Configured?}
-  I -- No --> J[Local Simulation Receipt]
-  I -- Yes --> K[GatewayClient Pays on Arc Testnet]
-  J --> L[Report Unlocked]
-  K --> L
-  L --> M{Arc Writer Configured?}
-  M -- No --> N[Queue Proof ID for Demo]
-  M -- Yes --> O[Publish SignalRegistry Tx on Arc]
-  O --> P[Store Tx Hash, Contract, Block]
+  D --> E[Source Agent Targets Official Sources]
+  E --> F[Research Agent Fetches Evidence]
+  F --> G[Forecast Agent Scores Consensus and Contradiction]
+  G --> H[Analyst Agent Builds Locked V2 Report]
+  H --> I{Buyer Requests Report?}
+  I -- No --> J[Show Public Market Data Only]
+  I -- Yes --> K[x402 Challenge Issued]
+  K --> L{Circle Gateway Env Configured?}
+  L -- No --> M[Local Simulation Receipt]
+  L -- Yes --> N[GatewayClient Pays on Arc Testnet]
+  M --> O[Report Unlocked]
+  N --> O
+  O --> P{Arc Writer Configured?}
+  P -- No --> Q[Queue Proof ID for Demo]
+  P -- Yes --> R[Publish SignalRegistry Tx on Arc]
+  R --> S[Store Tx Hash, Contract, Block]
 ```
 
 ## Architecture
@@ -131,7 +137,8 @@ Before depositing, request Arc Testnet USDC for the buyer wallet from the Circle
 ## Current Status
 
 - Live Polymarket market ingestion is implemented.
-- Analyst report generation is implemented.
+- V2 evidence-backed analyst reports are implemented.
+- Official-source targeting, consensus scoring, contradiction scoring, confidence caps, and monitoring triggers are implemented.
 - x402 server integration is installed and wired behind environment configuration.
 - Local payment simulation keeps demos working without secrets.
 - Arc proof queue is implemented, and real Arc writes activate when `SIGNAL_REGISTRY_ADDRESS` and `ARC_WRITER_PRIVATE_KEY` are configured.

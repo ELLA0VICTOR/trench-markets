@@ -17,11 +17,12 @@ import {
   settleReportPayment,
 } from './services/agents'
 import {
+  type BrowserWalletOption,
   type BrowserWalletSession,
   connectBrowserWallet,
+  listBrowserWallets,
   resetBrowserWallet,
   restoreBrowserWalletSession,
-  switchBrowserWallet,
   validateStoredBrowserWalletSession,
   watchBrowserWalletSession,
 } from './services/x402BuyerWallet'
@@ -68,6 +69,7 @@ function App() {
   const [walletName, setWalletName] = useState<string>()
   const [walletStatus, setWalletStatus] = useState<WalletStatus>('idle')
   const [walletMenuOpen, setWalletMenuOpen] = useState(false)
+  const [walletOptions, setWalletOptions] = useState<BrowserWalletOption[]>([])
   const [howItWorksOpen, setHowItWorksOpen] = useState(false)
 
   useEffect(() => {
@@ -86,6 +88,7 @@ function App() {
       setWalletName(undefined)
       setWalletStatus('idle')
       setWalletMenuOpen(false)
+      setWalletOptions([])
     }
 
     if (restored) {
@@ -295,11 +298,32 @@ function App() {
   async function connectWallet() {
     setWalletStatus('connecting')
     try {
-      const wallet = await connectBrowserWallet()
+      const wallets = await listBrowserWallets()
+
+      if (wallets.length > 1) {
+        setWalletOptions(wallets)
+        setWalletStatus(walletAddress ? 'connected' : 'idle')
+        setWalletMenuOpen(true)
+        return
+      }
+
+      await connectWalletOption(wallets[0]?.uuid)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Wallet connection failed.'
+      setWalletStatus(walletAddress ? 'connected' : 'idle')
+      window.alert(message)
+    }
+  }
+
+  async function connectWalletOption(walletUuid?: string) {
+    setWalletStatus('connecting')
+    try {
+      const wallet = await connectBrowserWallet(walletUuid)
       setWalletAddress(wallet.address)
       setWalletName(wallet.walletName)
       setWalletStatus('connected')
       setWalletMenuOpen(false)
+      setWalletOptions([])
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Wallet connection failed.'
       setWalletStatus(walletAddress ? 'connected' : 'idle')
@@ -310,11 +334,19 @@ function App() {
   async function switchWallet() {
     setWalletStatus('connecting')
     try {
-      const wallet = await switchBrowserWallet()
-      setWalletAddress(wallet.address)
-      setWalletName(wallet.walletName)
-      setWalletStatus('connected')
-      setWalletMenuOpen(false)
+      resetBrowserWallet()
+      const wallets = await listBrowserWallets()
+
+      if (wallets.length > 1) {
+        setWalletAddress(undefined)
+        setWalletName(undefined)
+        setWalletOptions(wallets)
+        setWalletStatus('idle')
+        setWalletMenuOpen(true)
+        return
+      }
+
+      await connectWalletOption(wallets[0]?.uuid)
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Wallet switch failed.'
       setWalletStatus(walletAddress ? 'connected' : 'idle')
@@ -339,6 +371,7 @@ function App() {
     setWalletName(undefined)
     setWalletStatus('idle')
     setWalletMenuOpen(false)
+    setWalletOptions([])
   }
 
   async function settleReport(mode: PaymentMode) {
@@ -388,9 +421,11 @@ function App() {
         walletName={walletName}
         walletStatus={walletStatus}
         walletMenuOpen={walletMenuOpen}
+        walletOptions={walletOptions}
         onQueryChange={setQuery}
         onWalletConnect={connectWallet}
         onWalletMenuToggle={() => setWalletMenuOpen((open) => !open)}
+        onWalletOptionSelect={connectWalletOption}
         onWalletCopy={copyWalletAddress}
         onWalletSwitch={switchWallet}
         onWalletDisconnect={disconnectWallet}

@@ -73,6 +73,14 @@ function evidenceQualityLabel(value: number) {
   return 'thin'
 }
 
+function formatScore(value: number) {
+  return `${Math.round(value * 100)}%`
+}
+
+function labelize(value: string) {
+  return value.replace(/-/g, ' ')
+}
+
 function DetailHeroImage({ market }: { market: Market }) {
   if (market.imageUrl) {
     return <img src={market.imageUrl} alt="" referrerPolicy="no-referrer" />
@@ -229,6 +237,22 @@ export function MarketDetail({
                   <span>Quality</span>
                   <strong>{evidenceQualityLabel(evidence.forecast.evidenceQuality)}</strong>
                 </div>
+                <div>
+                  <span>Consensus</span>
+                  <strong>{labelize(evidence.diagnostics.consensus)}</strong>
+                </div>
+                <div>
+                  <span>Liquidity</span>
+                  <strong>{evidence.diagnostics.liquidityGrade}</strong>
+                </div>
+                <div>
+                  <span>Contradiction</span>
+                  <strong>{formatScore(evidence.diagnostics.contradictionScore)}</strong>
+                </div>
+                <div>
+                  <span>Official</span>
+                  <strong>{formatScore(evidence.forecast.officialCoverage)}</strong>
+                </div>
               </div>
 
               <div className="evidence-list" aria-label="Evidence sources">
@@ -252,16 +276,39 @@ export function MarketDetail({
               <div className="report-grid">
                 <div>
                   <span>Research plan</span>
-                  <p>{evidence.plan.queries.join(' / ')}</p>
+                  <p>
+                    {evidence.plan.eventType} / {evidence.plan.queries.join(' / ')}
+                  </p>
                 </div>
                 <div>
                   <span>Base rate</span>
                   <p>{evidence.forecast.baseRate}</p>
                 </div>
                 <div>
+                  <span>Official sources</span>
+                  <p>
+                    {evidence.officialSources.length > 0
+                      ? evidence.officialSources
+                          .map((source) => `${source.label} (${source.status})`)
+                          .join(' / ')
+                      : 'No primary-source target matched this market.'}
+                  </p>
+                </div>
+                <div>
+                  <span>Monitoring</span>
+                  <p>{evidence.monitoring.map((item) => `${item.trigger}: ${item.reason}`).join(' / ')}</p>
+                </div>
+                <div>
                   <span>Entry</span>
                   <p>
                     {evidence.recommendation.maxEntry} / {evidence.recommendation.positionSize}
+                  </p>
+                </div>
+                <div>
+                  <span>Diagnostics</span>
+                  <p>
+                    {evidence.diagnostics.deadlinePressure} deadline / {evidence.diagnostics.manipulationRisk}{' '}
+                    manipulation risk / {formatScore(evidence.diagnostics.sourceDiversity)} diversity
                   </p>
                 </div>
                 <div>
