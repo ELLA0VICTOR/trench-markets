@@ -10,6 +10,7 @@ type EthereumProvider = {
   isCoinbaseWallet?: boolean
   isMetaMask?: boolean
   isOkxWallet?: boolean
+  isPhantom?: boolean
   isRabby?: boolean
   providers?: EthereumProvider[]
 }
@@ -101,12 +102,51 @@ function walletLabel(provider: EthereumProvider, index: number) {
   if (provider.isRabby) return 'Rabby'
   if (provider.isCoinbaseWallet) return 'Coinbase Wallet'
   if (provider.isOkxWallet) return 'OKX Wallet'
+  if (provider.isPhantom) return 'Phantom'
 
   return `Browser wallet ${index + 1}`
 }
 
-function walletRank(wallet: WalletProviderDetail) {
+function walletKind(wallet: WalletProviderDetail) {
   const label = `${wallet.info.name} ${wallet.info.rdns || ''}`.toLowerCase()
+
+  if (wallet.provider.isMetaMask || label.includes('metamask')) return 'metamask'
+  if (wallet.provider.isRabby || label.includes('rabby')) return 'rabby'
+  if (wallet.provider.isCoinbaseWallet || label.includes('coinbase')) return 'coinbase'
+  if (wallet.provider.isOkxWallet || label.includes('okx')) return 'okx'
+  if (wallet.provider.isPhantom || label.includes('phantom')) return 'phantom'
+
+  return wallet.info.rdns?.toLowerCase() || wallet.info.name.toLowerCase()
+}
+
+function isLegacyWallet(wallet: WalletProviderDetail) {
+  return wallet.info.uuid.startsWith('legacy-')
+}
+
+function shouldReplaceWallet(current: WalletProviderDetail, next: WalletProviderDetail) {
+  if (isLegacyWallet(current) && !isLegacyWallet(next)) return true
+  if (!current.info.icon && Boolean(next.info.icon)) return true
+
+  return false
+}
+
+function uniqueWallets(wallets: WalletProviderDetail[]) {
+  const byKind = new Map<string, WalletProviderDetail>()
+
+  for (const wallet of wallets) {
+    const key = walletKind(wallet)
+    const current = byKind.get(key)
+
+    if (!current || shouldReplaceWallet(current, wallet)) {
+      byKind.set(key, wallet)
+    }
+  }
+
+  return [...byKind.values()]
+}
+
+function walletRank(wallet: WalletProviderDetail) {
+  const label = walletKind(wallet)
 
   if (label.includes('metamask')) return 0
   if (label.includes('rabby')) return 1
@@ -296,7 +336,7 @@ async function discoverWallets() {
     }
   }
 
-  return [...announced.values()].sort((left, right) => walletRank(left) - walletRank(right))
+  return uniqueWallets([...announced.values()]).sort((left, right) => walletRank(left) - walletRank(right))
 }
 
 export async function listBrowserWallets(): Promise<BrowserWalletOption[]> {
