@@ -22,6 +22,7 @@ import type { AgentReport, Market } from './types.js'
 loadLocalEnv()
 
 const PORT = Number(process.env.PORT || 8787)
+const HOST = process.env.HOST || '0.0.0.0'
 const SELLER_ADDRESS = process.env.CIRCLE_SELLER_ADDRESS
 const BUYER_PRIVATE_KEY = process.env.CIRCLE_BUYER_PRIVATE_KEY
 const ARC_RPC_URL = process.env.ARC_RPC_URL
@@ -722,7 +723,7 @@ hydratePersistentStore()
     console.warn(error instanceof Error ? error.message : 'Supabase hydration failed.')
   })
   .finally(() => {
-    app.listen(PORT, '127.0.0.1', () => {
-      console.log(`Trench agent API listening on http://127.0.0.1:${PORT}`)
+    app.listen(PORT, HOST, () => {
+      console.log(`Trench agent API listening on http://${HOST}:${PORT}`)
     })
   })
