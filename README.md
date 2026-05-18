@@ -68,6 +68,101 @@ supabase/
   schema.sql           Reports, entitlements, and market snapshot schema
 ```
 
+## Repository Structure
+
+```text
+trench-markets/
+|-- .env.example
+|-- .gitignore
+|-- README.md
+|-- eslint.config.js
+|-- index.html
+|-- package-lock.json
+|-- package.json
+|-- postcss.config.js
+|-- tailwind.config.js
+|-- tsconfig.app.json
+|-- tsconfig.json
+|-- tsconfig.node.json
+|-- tsconfig.server.json
+|-- vite.config.ts
+|-- contracts/
+|   `-- SignalRegistry.sol
+|-- public/
+|   `-- favicon.svg
+|-- scripts/
+|   `-- api-dev.mjs
+|-- server/
+|   |-- index.ts
+|   |-- solc.d.ts
+|   |-- types.ts
+|   |-- agents/
+|   |   |-- analystAgent.ts
+|   |   |-- arcProofAgent.ts
+|   |   |-- buyerAgent.ts
+|   |   |-- evidenceEngine.ts
+|   |   `-- scoutAgent.ts
+|   |-- chain/
+|   |   |-- arc.ts
+|   |   `-- signalRegistryWriter.ts
+|   |-- contracts/
+|   |   |-- compileSignalRegistry.ts
+|   |   `-- signalRegistry.ts
+|   |-- lib/
+|   |   |-- env.ts
+|   |   `-- math.ts
+|   |-- scripts/
+|   |   |-- compileSignalRegistry.ts
+|   |   |-- deploySignalRegistry.ts
+|   |   |-- gatewayBalances.ts
+|   |   `-- gatewayDeposit.ts
+|   `-- storage/
+|       `-- reportStore.ts
+|-- src/
+|   |-- App.tsx
+|   |-- index.css
+|   |-- main.tsx
+|   |-- assets/
+|   |   |-- hero.png
+|   |   |-- react.svg
+|   |   `-- vite.svg
+|   |-- components/
+|   |   |-- AgentDesk.tsx
+|   |   |-- AgentProtocol.tsx
+|   |   |-- AnalysisPanel.tsx
+|   |   |-- CreateMarketPanel.tsx
+|   |   |-- Footer.tsx
+|   |   |-- HowItWorksModal.tsx
+|   |   |-- Intro.tsx
+|   |   |-- MarketBoard.tsx
+|   |   |-- MarketCard.tsx
+|   |   |-- MarketDetail.tsx
+|   |   |-- MarketRail.tsx
+|   |   |-- MarketTabs.tsx
+|   |   |-- MiniIcon.tsx
+|   |   |-- PublishSuccessModal.tsx
+|   |   |-- ReportPage.tsx
+|   |   |-- SettlementPanel.tsx
+|   |   |-- Topbar.tsx
+|   |   `-- TrenchMark.tsx
+|   |-- data/
+|   |   `-- markets.ts
+|   |-- lib/
+|   |   |-- api.ts
+|   |   |-- explorer.ts
+|   |   |-- format.ts
+|   |   `-- marketMath.ts
+|   |-- services/
+|   |   |-- agents.ts
+|   |   |-- gamma.ts
+|   |   `-- x402BuyerWallet.ts
+|   `-- types/
+|       |-- market.ts
+|       `-- report.ts
+`-- supabase/
+    `-- schema.sql
+```
+
 ## Product Model
 
 Reports are **versioned**. If market price or evidence drifts, Trench can generate a new report version instead of mutating the old one.
