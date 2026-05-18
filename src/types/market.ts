@@ -1,6 +1,6 @@
 export type Signal = 'BUY YES' | 'BUY NO' | 'PASS'
 
-export type PaymentState = 'quote' | 'required' | 'settling' | 'paid' | 'published'
+export type PaymentState = 'quote' | 'required' | 'settling' | 'paid' | 'publishing' | 'published'
 
 export type FeedState = 'syncing' | 'live' | 'fallback'
 

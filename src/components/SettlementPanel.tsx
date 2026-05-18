@@ -30,6 +30,14 @@ function paymentDescription(paymentState: PaymentState) {
     return 'Buyer agent is attaching payment proof and retrying the request.'
   }
 
+  if (paymentState === 'publishing') {
+    return 'Arc writer is committing the signal proof.'
+  }
+
+  if (paymentState === 'published') {
+    return 'Signal hash is committed to the Arc proof rail.'
+  }
+
   return 'Paid report unlocked. Signal can be committed to Arc.'
 }
 
@@ -87,14 +95,14 @@ export function SettlementPanel({
           Pay via x402
         </button>
         <button type="button" onClick={onSignalPublish} disabled={paymentState !== 'paid'}>
-          Publish signal
+          {paymentState === 'published' ? 'Published' : paymentState === 'publishing' ? 'Publishing' : 'Publish signal'}
         </button>
       </div>
 
       <div className="proof-box" id="proof">
         <div className="proof-heading">
           <span>Arc proof</span>
-          <strong>{paymentState === 'published' ? 'committed' : 'pending'}</strong>
+          <strong>{paymentState === 'published' ? 'committed' : paymentState === 'publishing' ? 'publishing' : 'pending'}</strong>
         </div>
         <dl>
           <div>
@@ -103,7 +111,7 @@ export function SettlementPanel({
           </div>
           <div>
             <dt>Tx hash</dt>
-            <dd>{paymentState === 'published' ? txHash : 'not published'}</dd>
+            <dd>{paymentState === 'published' ? txHash : paymentState === 'publishing' ? 'publishing' : 'not published'}</dd>
           </div>
           <div>
             <dt>Expiry</dt>

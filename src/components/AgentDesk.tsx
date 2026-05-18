@@ -32,6 +32,10 @@ function paymentCopy(paymentState: PaymentState) {
     return 'Full report is unlocked and ready to publish.'
   }
 
+  if (paymentState === 'publishing') {
+    return 'Arc writer is committing the signal proof.'
+  }
+
   return 'Signal hash is committed to the Arc proof rail.'
 }
 
@@ -46,8 +50,8 @@ export function AgentDesk({
   onSignalPublish,
 }: AgentDeskProps) {
   const confidence = confidenceFor(market.price, market.fairPrice, market.liquidity)
-  const unlocked = paymentState === 'paid' || paymentState === 'published'
-  const lockedLabel = paymentState === 'settling' ? 'settling' : 'locked'
+  const unlocked = paymentState === 'paid' || paymentState === 'publishing' || paymentState === 'published'
+  const lockedLabel = paymentState === 'settling' ? 'settling' : paymentState === 'publishing' ? 'publishing' : 'locked'
 
   return (
     <aside className="agent-desk" aria-label="Agent market desk">
@@ -107,7 +111,7 @@ export function AgentDesk({
             Pay via x402
           </button>
           <button type="button" onClick={onSignalPublish} disabled={paymentState !== 'paid'}>
-            Publish signal
+            {paymentState === 'published' ? 'Published' : paymentState === 'publishing' ? 'Publishing' : 'Publish signal'}
           </button>
         </div>
       </div>

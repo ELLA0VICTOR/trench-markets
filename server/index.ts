@@ -1,13 +1,22 @@
 import { GatewayClient } from '@circle-fin/x402-batching/client'
 import { BatchFacilitatorClient } from '@circle-fin/x402-batching/server'
 import express, { type NextFunction, type Request, type RequestHandler, type Response } from 'express'
+import { getAddress, parseUnits } from 'viem'
 import { runAnalystAgent } from './agents/analystAgent.js'
 import { publishArcProof } from './agents/arcProofAgent.js'
 import { requestLockedReport, settleX402Challenge } from './agents/buyerAgent.js'
 import { runScoutAgent } from './agents/scoutAgent.js'
 import { arcWriterConfigured } from './chain/signalRegistryWriter.js'
 import { loadLocalEnv } from './lib/env.js'
-import { getReport, saveReport } from './storage/reportStore.js'
+import {
+  getReport,
+  getReportEntitlement,
+  grantReportEntitlement,
+  hasReportEntitlement,
+  hydratePersistentStore,
+  normalizeBuyerAddress,
+  saveReport,
+} from './storage/reportStore.js'
 import type { AgentReport, Market } from './types.js'
 
 loadLocalEnv()
@@ -23,14 +32,20 @@ const ARC_GATEWAY_WALLET_ADDRESS = '0x0077777d7EBA4688BDeF3E311b846F25870A19B9'
 const GATEWAY_BATCHING_NAME = 'GatewayWalletBatched'
 const GATEWAY_BATCHING_VERSION = '1'
 const GATEWAY_AUTH_VALIDITY_WINDOW_SECONDS = 7 * 24 * 60 * 60 + 100
+const ARC_GATEWAY_DOMAIN = 26
+const REPORT_REFRESH_MINUTES = Number(process.env.REPORT_REFRESH_MINUTES || 15)
+const REPORT_REFRESH_MS = Math.max(1, REPORT_REFRESH_MINUTES) * 60_000
+const REPORT_PRICE_DRIFT_THRESHOLD = 0.03
 
 type MarketBody = {
   market?: unknown
+  buyerAddress?: string
 }
 
 type ReportBody = {
   marketId?: string
   reportHash?: string
+  buyerAddress?: string
 }
 
 type PaidRequest = Request & {
@@ -73,6 +88,16 @@ type GatewayPaymentPayload = {
   extensions?: Record<string, unknown>
 }
 
+type GatewayBalanceResponse = {
+  balances?: Array<{
+    balance?: string
+    withdrawing?: string
+    withdrawable?: string
+  }>
+  message?: string
+  error?: string
+}
+
 function isMarket(value: unknown): value is Market {
   if (!value || typeof value !== 'object') return false
 
@@ -105,13 +130,46 @@ function getExistingReport(body: ReportBody) {
   return { report }
 }
 
-function reportForClient(report: AgentReport) {
-  if (!report.locked) {
-    return report
+function reportAgeMs(report: AgentReport) {
+  return Date.now() - new Date(report.createdAt).getTime()
+}
+
+function reportNeedsRefresh(report: AgentReport, market: Market) {
+  const priceDrift = Math.abs(report.marketPrice - market.price)
+
+  return reportAgeMs(report) > REPORT_REFRESH_MS || priceDrift >= REPORT_PRICE_DRIFT_THRESHOLD
+}
+
+async function currentReportForMarket(market: Market) {
+  const existing = getReport(market.id)
+
+  if (!existing) {
+    return saveReport(await runAnalystAgent(market))
+  }
+
+  if (!reportNeedsRefresh(existing, market)) {
+    return existing
+  }
+
+  const next = await runAnalystAgent(market)
+
+  return saveReport({
+    ...next,
+    supersedesReportHash: existing.reportHash,
+  })
+}
+
+function reportForClient(report: AgentReport, unlocked = false) {
+  if (unlocked) {
+    return {
+      ...report,
+      locked: false,
+    }
   }
 
   return {
     ...report,
+    locked: true,
     signal: 'PASS' as const,
     fairPrice: report.marketPrice,
     confidence: 0,
@@ -219,6 +277,42 @@ function atomicUsdcFromPrice(price: string) {
   return atomic.toString()
 }
 
+function usdcAtomic(value?: string) {
+  return parseUnits(value || '0', 6).toString()
+}
+
+async function fetchGatewayBalance(address: string) {
+  const depositor = getAddress(address)
+  const response = await fetch(`${FACILITATOR_URL}/v1/balances`, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify({
+      token: 'USDC',
+      sources: [{ depositor, domain: ARC_GATEWAY_DOMAIN }],
+    }),
+  })
+  const data = (await response.json().catch(() => ({}))) as GatewayBalanceResponse
+
+  if (!response.ok) {
+    throw new Error(data.message || data.error || response.statusText)
+  }
+
+  const balance = data.balances?.[0] || {}
+
+  return {
+    address: depositor,
+    domain: ARC_GATEWAY_DOMAIN,
+    gatewayAvailable: balance.balance || '0',
+    gatewayAvailableAtomic: usdcAtomic(balance.balance),
+    gatewayWithdrawing: balance.withdrawing || '0',
+    gatewayWithdrawingAtomic: usdcAtomic(balance.withdrawing),
+    gatewayWithdrawable: balance.withdrawable || '0',
+    gatewayWithdrawableAtomic: usdcAtomic(balance.withdrawable),
+  }
+}
+
 function arcPaymentRequirements(report: AgentReport): GatewayPaymentRequirements {
   if (!SELLER_ADDRESS) {
     throw new Error('Circle x402 seller is not configured.')
@@ -297,6 +391,10 @@ function paymentSummary(payment: Awaited<ReturnType<typeof payProtectedReport>>)
   }
 }
 
+function buyerCanReadReport(buyerAddress: string | undefined, report: AgentReport) {
+  return hasReportEntitlement(buyerAddress, report.marketId)
+}
+
 const app = express()
 
 app.use((request, response, next) => {
@@ -318,24 +416,49 @@ app.use(express.json({ limit: '1mb' }))
 const facilitator = SELLER_ADDRESS ? new BatchFacilitatorClient({ url: FACILITATOR_URL }) : null
 
 const sponsoredPaymentHandler: RequestHandler = asyncRoute(async (request, response) => {
-  const result = getExistingReport(request.body as ReportBody)
+  const body = request.body as ReportBody
+  const result = getExistingReport(body)
 
   if ('error' in result) {
     response.status(404).json({ error: result.error })
     return
   }
 
+  const buyerAddress = normalizeBuyerAddress(body.buyerAddress) || 'sponsored-demo'
+
   if (facilitator && buyerEnabled()) {
     const paid = await payProtectedReport(result.report)
+    const report = saveReport(paid?.data.report || result.report)
+
+    grantReportEntitlement({
+      buyerAddress,
+      marketId: report.marketId,
+      reportHash: report.reportHash,
+      mode: 'sponsored',
+      amount: paid?.amount.toString(),
+      network: 'arcTestnet',
+      txHash: paid?.transaction,
+    })
+
     response.json({
-      report: saveReport(paid?.data.report || result.report),
+      report: reportForClient(report, true),
       payment: paymentSummary(paid),
     })
     return
   }
 
+  const report = saveReport(settleX402Challenge(result.report))
+  grantReportEntitlement({
+    buyerAddress,
+    marketId: report.marketId,
+    reportHash: report.reportHash,
+    mode: 'sponsored',
+    amount: report.challenge.amount,
+    network: report.challenge.network,
+  })
+
   response.json({
-    report: saveReport(settleX402Challenge(result.report)),
+    report: reportForClient(report, true),
     payment: {
       mode: 'local-simulation',
       reason: 'Set CIRCLE_SELLER_ADDRESS and CIRCLE_BUYER_PRIVATE_KEY to use Circle Gateway x402.',
@@ -360,6 +483,20 @@ app.get('/api/health', (_request, response) => {
 })
 
 app.get(
+  '/api/gateway/balances/:address',
+  asyncRoute(async (request, response) => {
+    const { address } = request.params
+
+    if (typeof address !== 'string') {
+      response.status(400).json({ error: 'Expected a wallet address.' })
+      return
+    }
+
+    response.json(await fetchGatewayBalance(address))
+  }),
+)
+
+app.get(
   '/api/markets',
   asyncRoute(async (_request, response) => {
     response.json(await runScoutAgent())
@@ -376,8 +513,10 @@ app.post(
       return
     }
 
-    const report = saveReport(await runAnalystAgent(body.market))
-    response.json({ report: reportForClient(report) })
+    const buyerAddress = normalizeBuyerAddress(body.buyerAddress)
+    const report = await currentReportForMarket(body.market)
+
+    response.json({ report: reportForClient(report, buyerCanReadReport(buyerAddress, report)) })
   }),
 )
 
@@ -391,9 +530,20 @@ app.post(
       return
     }
 
-    const existing = getReport(body.market.id) || (await runAnalystAgent(body.market))
-    const report = saveReport(requestLockedReport(existing))
-    response.json({ report: reportForClient(report) })
+    const buyerAddress = normalizeBuyerAddress(body.buyerAddress)
+    const existing = await currentReportForMarket(body.market)
+    const unlocked = buyerCanReadReport(buyerAddress, existing)
+
+    if (unlocked) {
+      response.json({
+        report: reportForClient(existing, true),
+        entitlement: getReportEntitlement(buyerAddress, existing.marketId),
+      })
+      return
+    }
+
+    const report = requestLockedReport(existing)
+    response.json({ report: reportForClient(report, false) })
   }),
 )
 
@@ -402,10 +552,21 @@ if (facilitator) {
     '/api/reports/unlock',
     asyncRoute(async (request, response) => {
       const paidRequest = request as PaidRequest
-      const result = getExistingReport(request.body as ReportBody)
+      const body = request.body as ReportBody
+      const result = getExistingReport(body)
 
       if ('error' in result) {
         response.status(404).json({ error: result.error })
+        return
+      }
+
+      const buyerAddress = normalizeBuyerAddress(body.buyerAddress)
+
+      if (buyerCanReadReport(buyerAddress, result.report)) {
+        response.json({
+          report: reportForClient(result.report, true),
+          entitlement: getReportEntitlement(buyerAddress, result.report.marketId),
+        })
         return
       }
 
@@ -483,8 +644,19 @@ if (facilitator) {
           network: paidRequest.payment.network,
         }),
       )
+      const payer = normalizeBuyerAddress(paidRequest.payment.payer || buyerAddress)
 
-      response.json({ report: paidReport, payment: paidRequest.payment })
+      grantReportEntitlement({
+        buyerAddress: payer,
+        marketId: paidReport.marketId,
+        reportHash: paidReport.reportHash,
+        mode: 'gateway',
+        amount: paidRequest.payment.amount,
+        network: paidRequest.payment.network,
+        txHash: paidRequest.payment.transaction,
+      })
+
+      response.json({ report: reportForClient(paidReport, true), payment: paidRequest.payment })
     }),
   )
 } else {
@@ -502,19 +674,23 @@ app.post('/api/payments/settle', sponsoredPaymentHandler)
 app.post(
   '/api/proofs',
   asyncRoute(async (request, response) => {
-    const result = getExistingReport(request.body as ReportBody)
+    const body = request.body as ReportBody
+    const result = getExistingReport(body)
 
     if ('error' in result) {
       response.status(404).json({ error: result.error })
       return
     }
 
-    if (result.report.locked) {
+    const buyerAddress = normalizeBuyerAddress(body.buyerAddress)
+    const unlocked = !result.report.locked || buyerCanReadReport(buyerAddress, result.report)
+
+    if (!unlocked) {
       response.status(402).json({ error: 'Unlock the report before publishing an Arc proof.' })
       return
     }
 
-    response.json({ report: saveReport(await publishArcProof(result.report)) })
+    response.json({ report: reportForClient(saveReport(await publishArcProof({ ...result.report, locked: false })), true) })
   }),
 )
 
@@ -526,7 +702,13 @@ app.get('/api/reports/:marketId', (request, response) => {
     return
   }
 
-  response.json({ report: reportForClient(report) })
+  const buyerAddress = normalizeBuyerAddress(typeof request.query.buyer === 'string' ? request.query.buyer : undefined)
+  const unlocked = buyerCanReadReport(buyerAddress, report)
+
+  response.json({
+    report: reportForClient(report, unlocked),
+    entitlement: unlocked ? getReportEntitlement(buyerAddress, report.marketId) : undefined,
+  })
 })
 
 app.use((error: unknown, _request: Request, response: Response, next: NextFunction) => {
@@ -535,6 +717,12 @@ app.use((error: unknown, _request: Request, response: Response, next: NextFuncti
   response.status(500).json({ error: message })
 })
 
-app.listen(PORT, '127.0.0.1', () => {
-  console.log(`Trench agent API listening on http://127.0.0.1:${PORT}`)
-})
+hydratePersistentStore()
+  .catch((error) => {
+    console.warn(error instanceof Error ? error.message : 'Supabase hydration failed.')
+  })
+  .finally(() => {
+    app.listen(PORT, '127.0.0.1', () => {
+      console.log(`Trench agent API listening on http://127.0.0.1:${PORT}`)
+    })
+  })

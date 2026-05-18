@@ -1,4 +1,6 @@
+import { useState } from 'react'
 import { reportPrice } from '../data/markets'
+import { arcExplorerTxUrl } from '../lib/explorer'
 import { formatDate, formatPercent, formatUsd } from '../lib/format'
 import { confidenceFor, edgeLabel } from '../lib/marketMath'
 import type { Market, PaymentState, Signal } from '../types/market'
@@ -18,8 +20,9 @@ type MarketDetailProps = {
   onBack: () => void
   onReportRequest: () => void
   onPaymentModeChange: (mode: 'buyer' | 'sponsored') => void
-  onSettleReport: (mode: 'buyer' | 'sponsored') => void
+  onSettleReport: (mode: 'buyer' | 'sponsored') => boolean | Promise<boolean>
   onSignalPublish: () => void
+  onViewReport: () => void
 }
 
 function paymentCopy(paymentState: PaymentState) {
@@ -39,6 +42,10 @@ function paymentCopy(paymentState: PaymentState) {
     return 'Full report is unlocked and ready to publish.'
   }
 
+  if (paymentState === 'publishing') {
+    return 'Arc writer is committing the report hash to SignalRegistry.'
+  }
+
   return 'Signal hash is committed to the Arc proof rail.'
 }
 
@@ -47,6 +54,13 @@ function formatReceiver(receiver?: string) {
   if (!/^0x[a-fA-F0-9]{40}$/.test(receiver)) return receiver
 
   return `${receiver.slice(0, 6)}...${receiver.slice(-4)}`
+}
+
+function shortHash(value: string) {
+  if (!value) return 'not ready'
+  if (value.length <= 18) return value
+
+  return `${value.slice(0, 10)}...${value.slice(-6)}`
 }
 
 function reportStateCopy(reportState: MarketDetailProps['reportState']) {
@@ -59,26 +73,6 @@ function reportStateCopy(reportState: MarketDetailProps['reportState']) {
   }
 
   return 'Buyer agent can request the locked report artifact.'
-}
-
-function formatDelta(value: number) {
-  const points = Math.round(value * 100)
-
-  return points > 0 ? `+${points} pts` : `${points} pts`
-}
-
-function evidenceQualityLabel(value: number) {
-  if (value >= 0.72) return 'high'
-  if (value >= 0.52) return 'medium'
-  return 'thin'
-}
-
-function formatScore(value: number) {
-  return `${Math.round(value * 100)}%`
-}
-
-function labelize(value: string) {
-  return value.replace(/-/g, ' ')
 }
 
 function DetailHeroImage({ market }: { market: Market }) {
@@ -111,19 +105,41 @@ export function MarketDetail({
   onPaymentModeChange,
   onSettleReport,
   onSignalPublish,
+  onViewReport,
 }: MarketDetailProps) {
   const confidence = agentReport?.confidence || confidenceFor(market.price, market.fairPrice, market.liquidity)
-  const unlocked = paymentState === 'paid' || paymentState === 'published'
+  const unlocked = paymentState === 'paid' || paymentState === 'publishing' || paymentState === 'published'
+  const isPublished = paymentState === 'published'
+  const isPublishing = paymentState === 'publishing'
   const fairPrice = agentReport?.fairPrice || market.fairPrice
-  const reportThesis = agentReport?.thesis || market.thesis
-  const catalysts = agentReport?.catalysts || market.catalysts
-  const risks = agentReport?.risks || market.risks
   const challenge = agentReport?.challenge
-  const runs = agentReport?.runs || []
   const reportPriceLabel = challenge ? `$${challenge.amount} ${challenge.asset}` : reportPrice
   const pricingRationale = challenge?.pricing.rationale.join(' / ')
-  const lockedLabel = paymentState === 'settling' ? 'settling' : 'locked'
-  const evidence = agentReport?.evidence
+  const lockedLabel = paymentState === 'settling' ? 'settling' : isPublishing ? 'publishing' : 'locked'
+  const proofTxUrl = arcExplorerTxUrl(agentReport?.proof?.txHash)
+  const [actionStep, setActionStep] = useState(0)
+  const actionSteps = ['Quote', 'Payment', 'Proof']
+
+  function stepBack() {
+    setActionStep((step) => Math.max(0, step - 1))
+  }
+
+  function stepNext() {
+    setActionStep((step) => Math.min(actionSteps.length - 1, step + 1))
+  }
+
+  function requestReportAndAdvance() {
+    onReportRequest()
+    setActionStep(1)
+  }
+
+  async function settleReportAndAdvance() {
+    const settled = await onSettleReport(paymentMode)
+
+    if (settled) {
+      setActionStep(2)
+    }
+  }
 
   return (
     <main className="detail-layout">
@@ -174,151 +190,18 @@ export function MarketDetail({
           </p>
         </section>
 
-        <section className="detail-section">
-          <div className="detail-section-heading">
-            <h2>Agent report</h2>
-            <span>{reportState === 'loading' ? 'syncing' : unlocked ? 'unlocked' : 'locked'}</span>
-          </div>
-          <p>
-            {unlocked
-              ? reportThesis
-              : 'The reasoning packet stays locked until the buyer agent satisfies the x402 challenge.'}
-          </p>
-          <div className="report-grid">
-            <div>
-              <span>Catalysts</span>
-              <p>{unlocked ? catalysts.join(' / ') : 'Locked inside the paid report.'}</p>
+        {unlocked ? (
+          <section className="detail-section report-entry">
+            <div className="detail-section-heading">
+              <h2>Report ready</h2>
+              <span>{isPublished ? 'published' : 'unlocked'}</span>
             </div>
-            <div>
-              <span>Risks</span>
-              <p>{unlocked ? risks.join(' / ') : 'Locked inside the paid report.'}</p>
-            </div>
-          </div>
-          {unlocked && runs.length > 0 ? (
-            <div className="agent-run-list" aria-label="Agent runs">
-              {runs.map((run, index) => (
-                <div key={`${run.agent}-${index}`}>
-                  <span>{run.agent}</span>
-                  <strong>{run.status}</strong>
-                  <p>{run.summary}</p>
-                </div>
-              ))}
-            </div>
-          ) : null}
-        </section>
-
-        <section className="detail-section">
-          <div className="detail-section-heading">
-            <h2>Evidence engine</h2>
-            <span>{unlocked && evidence ? evidence.verdict : 'locked'}</span>
-          </div>
-          <p>
-            {unlocked && evidence
-              ? evidence.summary
-              : 'External evidence, source scoring, skeptic notes, and entry guidance unlock after x402 payment.'}
-          </p>
-
-          {unlocked && evidence ? (
-            <>
-              <div className="evidence-metrics" aria-label="Evidence forecast">
-                <div>
-                  <span>Prior</span>
-                  <strong>{formatPercent(evidence.forecast.prior)}</strong>
-                </div>
-                <div>
-                  <span>Evidence</span>
-                  <strong>{formatDelta(evidence.forecast.evidenceDelta)}</strong>
-                </div>
-                <div>
-                  <span>Fair</span>
-                  <strong>{formatPercent(evidence.forecast.fairPrice)}</strong>
-                </div>
-                <div>
-                  <span>Quality</span>
-                  <strong>{evidenceQualityLabel(evidence.forecast.evidenceQuality)}</strong>
-                </div>
-                <div>
-                  <span>Consensus</span>
-                  <strong>{labelize(evidence.diagnostics.consensus)}</strong>
-                </div>
-                <div>
-                  <span>Liquidity</span>
-                  <strong>{evidence.diagnostics.liquidityGrade}</strong>
-                </div>
-                <div>
-                  <span>Contradiction</span>
-                  <strong>{formatScore(evidence.diagnostics.contradictionScore)}</strong>
-                </div>
-                <div>
-                  <span>Official</span>
-                  <strong>{formatScore(evidence.forecast.officialCoverage)}</strong>
-                </div>
-              </div>
-
-              <div className="evidence-list" aria-label="Evidence sources">
-                {evidence.items.slice(0, 5).map((item) => (
-                  <a
-                    className="evidence-item"
-                    href={item.url || undefined}
-                    target={item.url ? '_blank' : undefined}
-                    rel="noreferrer"
-                    key={`${item.source}-${item.title}`}
-                  >
-                    <div>
-                      <span>{item.source}</span>
-                      <strong>{item.title}</strong>
-                    </div>
-                    <small>{item.stance.replace('-', ' ')}</small>
-                  </a>
-                ))}
-              </div>
-
-              <div className="report-grid">
-                <div>
-                  <span>Research plan</span>
-                  <p>
-                    {evidence.plan.eventType} / {evidence.plan.queries.join(' / ')}
-                  </p>
-                </div>
-                <div>
-                  <span>Base rate</span>
-                  <p>{evidence.forecast.baseRate}</p>
-                </div>
-                <div>
-                  <span>Official sources</span>
-                  <p>
-                    {evidence.officialSources.length > 0
-                      ? evidence.officialSources
-                          .map((source) => `${source.label} (${source.status})`)
-                          .join(' / ')
-                      : 'No primary-source target matched this market.'}
-                  </p>
-                </div>
-                <div>
-                  <span>Monitoring</span>
-                  <p>{evidence.monitoring.map((item) => `${item.trigger}: ${item.reason}`).join(' / ')}</p>
-                </div>
-                <div>
-                  <span>Entry</span>
-                  <p>
-                    {evidence.recommendation.maxEntry} / {evidence.recommendation.positionSize}
-                  </p>
-                </div>
-                <div>
-                  <span>Diagnostics</span>
-                  <p>
-                    {evidence.diagnostics.deadlinePressure} deadline / {evidence.diagnostics.manipulationRisk}{' '}
-                    manipulation risk / {formatScore(evidence.diagnostics.sourceDiversity)} diversity
-                  </p>
-                </div>
-                <div>
-                  <span>Skeptic</span>
-                  <p>{evidence.skeptic.join(' / ')}</p>
-                </div>
-              </div>
-            </>
-          ) : null}
-        </section>
+            <p>Open the dedicated report page for signal, confidence, edge, execution guidance, evidence, and Arc proof.</p>
+            <button className="secondary-action" type="button" onClick={onViewReport}>
+              View report
+            </button>
+          </section>
+        ) : null}
       </section>
 
       <aside className="detail-action">
@@ -331,116 +214,182 @@ export function MarketDetail({
             </div>
           </div>
 
-          <div className="action-tabs">
-            <button type="button" className="is-active">
-              x402
-            </button>
-            <button type="button">Arc proof</button>
+          <div className="action-stepper" aria-label="Report flow">
+            {actionSteps.map((step, index) => (
+              <button
+                type="button"
+                className={index === actionStep ? 'is-active' : ''}
+                key={step}
+                onClick={() => setActionStep(index)}
+              >
+                {step}
+              </button>
+            ))}
           </div>
 
-          <div className="signal-row">
-            <span>Signal</span>
-            <strong>{unlocked ? signal : lockedLabel}</strong>
-          </div>
-          <div className="signal-row">
-            <span>Confidence</span>
-            <strong>{unlocked ? formatPercent(confidence) : lockedLabel}</strong>
-          </div>
-
-          <div className="relay-stack compact">
-            <div className="relay-line">
-              <MiniIcon type="signal" />
-              <div>
-                <span>Seller</span>
-                <strong>{formatReceiver(challenge?.receiver)}</strong>
+          {actionStep === 0 ? (
+            <div className="action-step">
+              <div className="signal-grid">
+                <div>
+                  <span>Signal</span>
+                  <strong>{unlocked ? signal : lockedLabel}</strong>
+                </div>
+                <div>
+                  <span>Confidence</span>
+                  <strong>{unlocked ? formatPercent(confidence) : lockedLabel}</strong>
+                </div>
               </div>
-            </div>
-            <div className="relay-line">
-              <MiniIcon type="pay" />
-              <div>
-                <span>Price</span>
-                <strong>{reportPriceLabel}</strong>
-              </div>
-            </div>
-          </div>
 
-          {challenge?.pricing ? (
-            <div className="pricing-note">
-              <span>Agent price</span>
-              <strong>Max ${challenge.pricing.maxAmount}</strong>
-              <p>{unlocked ? pricingRationale : 'Pricing rationale unlocks with the report.'}</p>
+              <div className="relay-stack compact">
+                <div className="relay-line">
+                  <MiniIcon type="signal" />
+                  <div>
+                    <span>Seller</span>
+                    <strong>{formatReceiver(challenge?.receiver)}</strong>
+                  </div>
+                </div>
+                <div className="relay-line">
+                  <MiniIcon type="pay" />
+                  <div>
+                    <span>Price</span>
+                    <strong>{reportPriceLabel}</strong>
+                  </div>
+                </div>
+              </div>
+
+              {challenge?.pricing ? (
+                <div className="pricing-note compact">
+                  <span>Agent price</span>
+                  <strong>Max ${challenge.pricing.maxAmount}</strong>
+                  <p>{unlocked ? pricingRationale : 'Pricing rationale unlocks with the report.'}</p>
+                </div>
+              ) : null}
+
+              <p className="action-copy">
+                {paymentState === 'quote' ? reportStateCopy(reportState) : paymentCopy(paymentState)}
+              </p>
+              <button
+                className="primary-action"
+                type="button"
+                onClick={requestReportAndAdvance}
+                disabled={paymentState !== 'quote'}
+              >
+                Request report
+              </button>
             </div>
           ) : null}
 
-          <p className="action-copy">
-            {paymentState === 'quote' ? reportStateCopy(reportState) : paymentCopy(paymentState)}
-          </p>
-
-          <div className="payment-mode" aria-label="Payment mode">
-            <button
-              type="button"
-              className={paymentMode === 'buyer' ? 'is-active' : ''}
-              onClick={() => onPaymentModeChange('buyer')}
-              disabled={paymentState === 'settling'}
-            >
-              Buyer wallet
-            </button>
-            <button
-              type="button"
-              className={paymentMode === 'sponsored' ? 'is-active' : ''}
-              onClick={() => onPaymentModeChange('sponsored')}
-              disabled={paymentState === 'settling'}
-            >
-              Sponsored demo
-            </button>
-          </div>
-
-          <div className="faucet-row">
-            <span>Need Arc faucet?</span>
-            <a href="https://faucet.circle.com/?allow=true" target="_blank" rel="noreferrer">
-              Get faucet
-            </a>
-          </div>
-
-          {paymentError ? <p className="payment-error">{paymentError}</p> : null}
-
-          <div className="action-buttons">
-            <button type="button" onClick={onReportRequest} disabled={paymentState !== 'quote'}>
-              Request report
-            </button>
-            <button type="button" onClick={() => onSettleReport(paymentMode)} disabled={paymentState !== 'required'}>
-              {paymentMode === 'buyer' ? 'Pay from buyer wallet' : 'Run sponsored demo'}
-            </button>
-            <button type="button" onClick={onSignalPublish} disabled={paymentState !== 'paid'}>
-              Publish to Arc
-            </button>
-          </div>
-        </div>
-
-        <div className="proof-summary">
-          <span>Arc proof</span>
-          <dl>
-            <div>
-              <dt>Report hash</dt>
-              <dd>{reportHash}</dd>
-            </div>
-            <div>
-              <dt>{agentReport?.proof?.txHash ? 'Tx hash' : 'Proof status'}</dt>
-              <dd>{paymentState === 'published' ? proofLabel : 'not published'}</dd>
-            </div>
-            {agentReport?.proof?.contractAddress ? (
-              <div>
-                <dt>Contract</dt>
-                <dd>{agentReport.proof.contractAddress}</dd>
+          {actionStep === 1 ? (
+            <div className="action-step">
+              <div className="payment-mode" aria-label="Payment mode">
+                <button
+                  type="button"
+                  className={paymentMode === 'buyer' ? 'is-active' : ''}
+                  onClick={() => onPaymentModeChange('buyer')}
+                  disabled={paymentState === 'settling'}
+                >
+                  Buyer wallet
+                </button>
+                <button
+                  type="button"
+                  className={paymentMode === 'sponsored' ? 'is-active' : ''}
+                  onClick={() => onPaymentModeChange('sponsored')}
+                  disabled={paymentState === 'settling'}
+                >
+                  Sponsored demo
+                </button>
               </div>
-            ) : null}
-            {agentReport?.proof?.blockNumber ? (
-              <div>
-                <dt>Block</dt>
-                <dd>{agentReport.proof.blockNumber}</dd>
+
+              <p className="action-copy">{paymentCopy(paymentState)}</p>
+
+              <div className="faucet-row">
+                <span>Need Arc faucet?</span>
+                <a href="https://faucet.circle.com/?allow=true" target="_blank" rel="noreferrer">
+                  Get faucet
+                </a>
               </div>
-            ) : null}
-          </dl>
+
+              {paymentError ? <p className="payment-error">{paymentError}</p> : null}
+
+              <button
+                className="primary-action"
+                type="button"
+                onClick={settleReportAndAdvance}
+                disabled={paymentState !== 'required'}
+              >
+                {paymentMode === 'buyer' ? 'Pay from buyer wallet' : 'Run sponsored demo'}
+              </button>
+            </div>
+          ) : null}
+
+          {actionStep === 2 ? (
+            <div className="action-step">
+              <div className="proof-mini">
+                <div>
+                  <span>Report hash</span>
+                  <strong title={reportHash}>{shortHash(reportHash)}</strong>
+                </div>
+                <div>
+                  <span>{agentReport?.proof?.txHash ? 'Tx hash' : 'Proof status'}</span>
+                  <strong title={proofLabel}>
+                    {isPublished ? shortHash(proofLabel) : isPublishing ? 'publishing' : 'not published'}
+                  </strong>
+                </div>
+                {agentReport?.proof?.contractAddress ? (
+                  <div>
+                    <span>Contract</span>
+                    <strong title={agentReport.proof.contractAddress}>
+                      {shortHash(agentReport.proof.contractAddress)}
+                    </strong>
+                  </div>
+                ) : null}
+                {agentReport?.proof?.blockNumber ? (
+                  <div>
+                    <span>Block</span>
+                    <strong>{agentReport.proof.blockNumber}</strong>
+                  </div>
+                ) : null}
+              </div>
+
+              <p className="action-copy">{paymentCopy(paymentState)}</p>
+              {paymentError ? <p className="payment-error">{paymentError}</p> : null}
+              {isPublished && proofTxUrl ? (
+                <a
+                  className="proof-link"
+                  href={proofTxUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  Open Arc transaction <span aria-hidden="true">↗</span>
+                </a>
+              ) : null}
+              <button
+                className="primary-action"
+                type="button"
+                onClick={onSignalPublish}
+                disabled={paymentState !== 'paid'}
+              >
+                {isPublished ? 'Published to Arc' : isPublishing ? 'Publishing...' : 'Publish to Arc'}
+              </button>
+              {unlocked ? (
+                <button className="secondary-action" type="button" onClick={onViewReport}>
+                  View report
+                </button>
+              ) : null}
+            </div>
+          ) : null}
+
+          <div className="action-nav">
+            <button type="button" onClick={stepBack} disabled={actionStep === 0}>
+              Previous
+            </button>
+            <span>
+              {actionStep + 1} / {actionSteps.length}
+            </span>
+            <button type="button" onClick={stepNext} disabled={actionStep === actionSteps.length - 1}>
+              Next
+            </button>
+          </div>
         </div>
       </aside>
     </main>

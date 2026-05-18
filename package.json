@@ -10,6 +10,7 @@
     "preview": "vite preview",
     "server:build": "tsc -p tsconfig.server.json",
     "api": "npm run server:build && node dist-server/index.js",
+    "api:dev": "node scripts/api-dev.mjs",
     "contract:compile": "npm run server:build && node dist-server/scripts/compileSignalRegistry.js",
     "contract:deploy": "npm run server:build && node dist-server/scripts/deploySignalRegistry.js",
     "gateway:balances": "npm run server:build && node dist-server/scripts/gatewayBalances.js",

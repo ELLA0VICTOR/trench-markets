@@ -62,6 +62,25 @@ type PaymentRequiredResponse = {
 type UnlockBody = {
   marketId: string
   reportHash: string
+  buyerAddress?: string
+}
+
+type GatewayBalanceResult = {
+  address: `0x${string}`
+  gatewayAvailable: string
+  gatewayAvailableAtomic: string
+}
+
+function isGatewayBalanceResult(value: unknown): value is GatewayBalanceResult {
+  if (!value || typeof value !== 'object') {
+    return false
+  }
+
+  return (
+    'gatewayAvailableAtomic' in value &&
+    typeof (value as GatewayBalanceResult).gatewayAvailableAtomic === 'string' &&
+    typeof (value as GatewayBalanceResult).gatewayAvailable === 'string'
+  )
 }
 
 declare global {
@@ -110,11 +129,16 @@ function walletLabel(provider: EthereumProvider, index: number) {
 function walletKind(wallet: WalletProviderDetail) {
   const label = `${wallet.info.name} ${wallet.info.rdns || ''}`.toLowerCase()
 
-  if (wallet.provider.isMetaMask || label.includes('metamask')) return 'metamask'
-  if (wallet.provider.isRabby || label.includes('rabby')) return 'rabby'
-  if (wallet.provider.isCoinbaseWallet || label.includes('coinbase')) return 'coinbase'
-  if (wallet.provider.isOkxWallet || label.includes('okx')) return 'okx'
-  if (wallet.provider.isPhantom || label.includes('phantom')) return 'phantom'
+  if (label.includes('metamask')) return 'metamask'
+  if (label.includes('rabby')) return 'rabby'
+  if (label.includes('coinbase')) return 'coinbase'
+  if (label.includes('okx')) return 'okx'
+  if (label.includes('phantom')) return 'phantom'
+  if (wallet.provider.isMetaMask) return 'metamask'
+  if (wallet.provider.isRabby) return 'rabby'
+  if (wallet.provider.isCoinbaseWallet) return 'coinbase'
+  if (wallet.provider.isOkxWallet) return 'okx'
+  if (wallet.provider.isPhantom) return 'phantom'
 
   return wallet.info.rdns?.toLowerCase() || wallet.info.name.toLowerCase()
 }
@@ -309,31 +333,27 @@ function legacyWallets() {
 
 async function discoverWallets() {
   const announced = new Map<string, WalletProviderDetail>()
-  const seenProviders = new Set<EthereumProvider>()
   const onAnnouncement = (event: CustomEvent<WalletProviderDetail>) => {
     const detail = event.detail
 
-    if (!detail?.provider?.request || seenProviders.has(detail.provider)) {
+    if (!detail?.provider?.request) {
       return
     }
 
-    seenProviders.add(detail.provider)
-    announced.set(detail.info.uuid, detail)
+    announced.set(detail.info.uuid || detail.info.rdns || detail.info.name, detail)
   }
 
   window.addEventListener('eip6963:announceProvider', onAnnouncement)
   window.dispatchEvent(new Event('eip6963:requestProvider'))
 
   await new Promise((resolve) => {
-    window.setTimeout(resolve, 450)
+    window.setTimeout(resolve, 900)
   })
 
   window.removeEventListener('eip6963:announceProvider', onAnnouncement)
 
   for (const wallet of legacyWallets()) {
-    if (!seenProviders.has(wallet.provider)) {
-      announced.set(wallet.info.uuid, wallet)
-    }
+    announced.set(wallet.info.uuid, wallet)
   }
 
   return uniqueWallets([...announced.values()]).sort((left, right) => walletRank(left) - walletRank(right))
@@ -344,17 +364,22 @@ export async function listBrowserWallets(): Promise<BrowserWalletOption[]> {
 }
 
 async function ensureWallet(walletUuid?: string) {
-  if (activeWallet && (!walletUuid || activeWallet.info.uuid === walletUuid)) {
+  if (activeWallet && walletUuid && activeWallet.info.uuid === walletUuid) {
     return activeWallet
   }
 
   const wallets = await discoverWallets()
+  const session = readStoredWalletSession()
 
   if (wallets.length === 0) {
     throw new Error('No browser wallet found. Connect a wallet with an Arc Gateway balance.')
   }
 
-  activeWallet = selectWalletByUuid(wallets, walletUuid) || selectWalletForSession(wallets, readStoredWalletSession()) || wallets[0]
+  activeWallet =
+    selectWalletByUuid(wallets, walletUuid) ||
+    selectWalletForSession(wallets, session) ||
+    (activeWallet ? selectWalletByUuid(wallets, activeWallet.info.uuid) : undefined) ||
+    wallets[0]
   return activeWallet
 }
 
@@ -481,6 +506,16 @@ async function connectBuyerWallet(provider: EthereumProvider) {
   return assertAddress(accounts[0])
 }
 
+async function activeWalletAddress(provider: EthereumProvider) {
+  const accounts = await provider.request({ method: 'eth_accounts' }).catch(() => [])
+
+  if (!Array.isArray(accounts) || !accounts[0]) {
+    return undefined
+  }
+
+  return accounts.map(maybeAddress).find(Boolean)
+}
+
 function verificationMessage(address: string) {
   const nonce = createNonce().slice(2, 18)
 
@@ -576,6 +611,14 @@ export async function watchBrowserWalletSession(onChange: (session?: BrowserWall
     }
 
     const onAccountsChanged = (value: unknown) => {
+      const session = readStoredWalletSession()
+      const isActiveProvider = activeWallet?.info.uuid === wallet.info.uuid
+      const isSessionProvider = session ? walletMatchesSession(wallet, session) : false
+
+      if (!isActiveProvider && !isSessionProvider) {
+        return
+      }
+
       if (!Array.isArray(value) || value.length === 0) {
         resetBrowserWallet()
         onChange(undefined)
@@ -615,6 +658,18 @@ function stringifyTypedDataForWallet(payload: unknown) {
   return JSON.stringify(payload, (_key, value) => (typeof value === 'bigint' ? value.toString() : value))
 }
 
+function shortAddress(address: string) {
+  return `${address.slice(0, 6)}...${address.slice(-4)}`
+}
+
+function formatAtomicUsdc(value: string) {
+  const atomic = BigInt(value)
+  const whole = atomic / 1_000_000n
+  const fraction = (atomic % 1_000_000n).toString().padStart(6, '0').replace(/0+$/g, '')
+
+  return fraction ? `${whole}.${fraction}` : whole.toString()
+}
+
 function createNonce(): `0x${string}` {
   const bytes = new Uint8Array(32)
   crypto.getRandomValues(bytes)
@@ -640,6 +695,35 @@ function selectGatewayOption(paymentRequired: PaymentRequiredResponse) {
   return option
 }
 
+async function gatewayBalanceFor(address: `0x${string}`) {
+  const response = await fetch(`/api/gateway/balances/${address}`)
+  const data = (await response.json().catch(() => null)) as GatewayBalanceResult | { error?: string } | null
+
+  if (response.status === 404) {
+    throw new Error('Gateway balance endpoint is not loaded. Restart the API with npm.cmd run api, then refresh the app.')
+  }
+
+  if (!response.ok || !isGatewayBalanceResult(data)) {
+    throw new Error(
+      `Could not check Gateway balance for ${shortAddress(address)}: ${
+        data && 'error' in data && data.error ? data.error : response.statusText
+      }`,
+    )
+  }
+
+  return data
+}
+
+async function assertGatewayBalance(address: `0x${string}`, requiredAtomic: string) {
+  const balance = await gatewayBalanceFor(address)
+
+  if (BigInt(balance.gatewayAvailableAtomic) < BigInt(requiredAtomic)) {
+    throw new Error(
+      `Gateway balance is too low for ${shortAddress(address)}. Available ${balance.gatewayAvailable} USDC, need ${formatAtomicUsdc(requiredAtomic)} USDC. Deposit into Circle Gateway for this exact wallet or use Sponsored demo.`,
+    )
+  }
+}
+
 async function createPaymentPayload(
   provider: EthereumProvider,
   buyerAddress: `0x${string}`,
@@ -657,6 +741,16 @@ async function createPaymentPayload(
     validBefore: String(now + validityWindow),
     nonce: createNonce(),
   }
+  const transferTypes = {
+    TransferWithAuthorization: [
+      { name: 'from', type: 'address' },
+      { name: 'to', type: 'address' },
+      { name: 'value', type: 'uint256' },
+      { name: 'validAfter', type: 'uint256' },
+      { name: 'validBefore', type: 'uint256' },
+      { name: 'nonce', type: 'bytes32' },
+    ],
+  } as const
   const typedData = {
     domain: {
       name: GATEWAY_BATCHING_NAME,
@@ -664,16 +758,7 @@ async function createPaymentPayload(
       chainId: Number(ARC_TESTNET_NETWORK.split(':')[1]),
       verifyingContract,
     },
-    types: {
-      TransferWithAuthorization: [
-        { name: 'from', type: 'address' },
-        { name: 'to', type: 'address' },
-        { name: 'value', type: 'uint256' },
-        { name: 'validAfter', type: 'uint256' },
-        { name: 'validBefore', type: 'uint256' },
-        { name: 'nonce', type: 'bytes32' },
-      ],
-    },
+    types: transferTypes,
     primaryType: 'TransferWithAuthorization',
     message: {
       from: authorization.from,
@@ -684,10 +769,45 @@ async function createPaymentPayload(
       nonce: authorization.nonce,
     },
   } as const
-  const signature = await provider.request({
-    method: 'eth_signTypedData_v4',
-    params: [authorization.from, stringifyTypedDataForWallet(typedData)],
-  })
+  const walletTypedData = {
+    ...typedData,
+    types: {
+      EIP712Domain: [
+        { name: 'name', type: 'string' },
+        { name: 'version', type: 'string' },
+        { name: 'chainId', type: 'uint256' },
+        { name: 'verifyingContract', type: 'address' },
+      ],
+      ...transferTypes,
+    },
+  } as const
+  let signature: unknown
+
+  try {
+    signature = await provider.request({
+      method: 'eth_signTypedData_v4',
+      params: [authorization.from, stringifyTypedDataForWallet(walletTypedData)],
+    })
+  } catch (error) {
+    const code = rpcErrorCode(error)
+    const message = rpcErrorMessage(error)
+
+    if (code === 4001) {
+      throw new Error('Wallet signature was rejected. Confirm the x402 authorization to pay from this wallet.', {
+        cause: error,
+      })
+    }
+
+    if (code === 4100 || message.toLowerCase().includes('not been authorized')) {
+      throw new Error(
+        `Wallet has not authorized ${shortAddress(authorization.from)} to sign for Trench. Disconnect, reconnect that exact account, then try payment again.`,
+        { cause: error },
+      )
+    }
+
+    throw new Error(`Wallet signature request failed: ${message}`, { cause: error })
+  }
+
   const paymentSignature = assertHex(signature)
   const recoveredAddress = await recoverTypedDataAddress({
     ...typedData,
@@ -696,11 +816,12 @@ async function createPaymentPayload(
 
   if (normalizeAddress(recoveredAddress) !== normalizeAddress(authorization.from)) {
     throw new Error(
-      `Wallet signed from ${recoveredAddress.slice(0, 6)}...${recoveredAddress.slice(-4)}, expected ${authorization.from.slice(0, 6)}...${authorization.from.slice(-4)}. Change wallet or disable conflicting wallet extensions.`,
+      `Wallet signed from ${shortAddress(recoveredAddress)}, but Trench requested ${shortAddress(authorization.from)}. Open the selected wallet, switch to ${shortAddress(authorization.from)}, or disable competing wallet extensions for this test.`,
     )
   }
 
   return {
+    signerAddress: authorization.from as `0x${string}`,
     x402Version,
     payload: {
       authorization,
@@ -732,14 +853,21 @@ export async function payReportFromBuyerWallet(marketId: string, reportHash: str
   const provider = wallet.provider
   const buyerAddress = await connectBuyerWallet(provider)
   const existingSession = readStoredWalletSession()
+  const paymentAddress =
+    existingSession &&
+    walletMatchesSession(wallet, existingSession) &&
+    normalizeAddress(existingSession.address) === normalizeAddress(buyerAddress)
+      ? existingSession.address
+      : buyerAddress
+
   writeWalletSession(
     wallet,
-    buyerAddress,
-    existingSession && normalizeAddress(existingSession.address) === normalizeAddress(buyerAddress)
+    paymentAddress,
+    existingSession && normalizeAddress(existingSession.address) === normalizeAddress(paymentAddress)
       ? existingSession.verificationSignature
       : undefined,
   )
-  const body: UnlockBody = { marketId, reportHash }
+  const body: UnlockBody = { marketId, reportHash, buyerAddress: paymentAddress }
   const serializedBody = JSON.stringify(body)
   const initialResponse = await fetch('/api/reports/unlock', {
     method: 'POST',
@@ -754,7 +882,10 @@ export async function payReportFromBuyerWallet(marketId: string, reportHash: str
       return parseReportResponse(initialResponse)
     }
 
-    throw new Error(`Report unlock failed before payment: ${initialResponse.status}`)
+    const error = await initialResponse.json().catch(() => null)
+    const message = paymentErrorMessage(error, initialResponse.statusText || 'API route unavailable')
+
+    throw new Error(`Report unlock failed before payment (${initialResponse.status}): ${message}`)
   }
 
   const paymentRequiredHeader = initialResponse.headers.get('PAYMENT-REQUIRED')
@@ -766,18 +897,29 @@ export async function payReportFromBuyerWallet(marketId: string, reportHash: str
   const paymentRequired = decodePaymentRequired(paymentRequiredHeader)
   const gatewayOption = selectGatewayOption(paymentRequired)
   await ensureArcTestnet(provider)
+  const activeAddress = await activeWalletAddress(provider)
+
+  if (activeAddress && normalizeAddress(activeAddress) !== normalizeAddress(paymentAddress)) {
+    throw new Error(
+      `${wallet.info.name} returned ${shortAddress(activeAddress)} as the active account, but Trench is connected to ${shortAddress(paymentAddress)}. Switch the wallet account to ${shortAddress(paymentAddress)} or reconnect the wallet from Trench.`,
+    )
+  }
+
+  await assertGatewayBalance(paymentAddress, gatewayOption.amount)
   const paymentPayload = await createPaymentPayload(
     provider,
-    buyerAddress,
+    paymentAddress,
     paymentRequired.x402Version || 2,
     gatewayOption,
   )
+  writeWalletSession(wallet, paymentPayload.signerAddress, existingSession?.verificationSignature)
   const paidResponse = await fetch('/api/reports/unlock', {
     method: 'POST',
     headers: {
       'content-type': 'application/json',
       'Payment-Signature': encodePaymentSignature({
-        ...paymentPayload,
+        x402Version: paymentPayload.x402Version,
+        payload: paymentPayload.payload,
         resource: paymentRequired.resource,
         accepted: gatewayOption,
       }),

@@ -108,6 +108,8 @@ export type PaymentChallenge = {
 export type AgentReport = {
   marketId: string
   marketTitle: string
+  version?: number
+  supersedesReportHash?: string
   signal: Signal
   fairPrice: number
   marketPrice: number

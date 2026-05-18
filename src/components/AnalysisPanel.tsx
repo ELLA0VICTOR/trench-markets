@@ -10,8 +10,8 @@ type AnalysisPanelProps = {
 
 export function AnalysisPanel({ market, paymentState, signal }: AnalysisPanelProps) {
   const confidence = confidenceFor(market.price, market.fairPrice, market.liquidity)
-  const unlocked = paymentState === 'paid' || paymentState === 'published'
-  const lockedLabel = paymentState === 'settling' ? 'settling' : 'locked'
+  const unlocked = paymentState === 'paid' || paymentState === 'publishing' || paymentState === 'published'
+  const lockedLabel = paymentState === 'settling' ? 'settling' : paymentState === 'publishing' ? 'publishing' : 'locked'
 
   return (
     <section className="analysis-panel" id="agents">

@@ -6,11 +6,14 @@ import { HowItWorksModal } from './components/HowItWorksModal'
 import { MarketBoard } from './components/MarketBoard'
 import { MarketDetail } from './components/MarketDetail'
 import { MarketTabs } from './components/MarketTabs'
+import { PublishSuccessModal } from './components/PublishSuccessModal'
+import { ReportPage } from './components/ReportPage'
 import { Topbar } from './components/Topbar'
 import { marketTabs, seedMarkets } from './data/markets'
 import { buildCustomMarketWithImage, reportHashFor, signalFor } from './lib/marketMath'
 import {
   analyzeMarket,
+  fetchSavedReport,
   publishReportProof,
   requestLockedReport,
   settleReportFromBuyerWallet,
@@ -33,6 +36,39 @@ import type { AgentReport } from './types/report'
 type PaymentMode = 'buyer' | 'sponsored'
 type WalletStatus = 'idle' | 'connecting' | 'connected'
 
+function initialRouteFromUrl() {
+  if (typeof window === 'undefined') {
+    return { marketId: null, reportId: null }
+  }
+
+  const params = new URLSearchParams(window.location.search)
+
+  return {
+    marketId: params.get('market'),
+    reportId: params.get('report'),
+  }
+}
+
+function readableError(error: unknown, fallback: string) {
+  if (error instanceof Error) {
+    return error.message
+  }
+
+  if (typeof error === 'string') {
+    return error
+  }
+
+  if (error && typeof error === 'object' && 'message' in error) {
+    const message = (error as { message: unknown }).message
+
+    if (typeof message === 'string') {
+      return message
+    }
+  }
+
+  return fallback
+}
+
 function matchesTab(market: Market, activeTab: MarketTab) {
   if (activeTab === 'New') return true
   if (activeTab === 'Ending Soon') return market.status === 'Ending Soon'
@@ -51,18 +87,23 @@ function matchesSearch(market: Market, query: string) {
 }
 
 function App() {
+  const initialRoute = useMemo(() => initialRouteFromUrl(), [])
+  const initialMarketId = initialRoute.reportId || initialRoute.marketId
   const [markets, setMarkets] = useState<Market[]>(seedMarkets)
   const [feedState, setFeedState] = useState<FeedState>('syncing')
-  const [selectedId, setSelectedId] = useState(seedMarkets[0].id)
+  const [selectedId, setSelectedId] = useState(initialMarketId || seedMarkets[0].id)
   const [paymentState, setPaymentState] = useState<PaymentState>('quote')
   const [query, setQuery] = useState('')
   const [activeTab, setActiveTab] = useState<MarketTab>('New')
   const [createOpen, setCreateOpen] = useState(false)
   const [customQuestion, setCustomQuestion] = useState('')
   const [customImageUrl, setCustomImageUrl] = useState<string>()
-  const [detailMarketId, setDetailMarketId] = useState<string | null>(null)
+  const [detailMarketId, setDetailMarketId] = useState<string | null>(initialRoute.reportId ? null : initialRoute.marketId)
+  const [reportMarketId, setReportMarketId] = useState<string | null>(initialRoute.reportId)
   const [agentReport, setAgentReport] = useState<AgentReport>()
-  const [reportState, setReportState] = useState<'idle' | 'loading' | 'ready' | 'offline'>('idle')
+  const [reportState, setReportState] = useState<'idle' | 'loading' | 'ready' | 'offline'>(
+    initialMarketId ? 'loading' : 'idle',
+  )
   const [paymentMode, setPaymentMode] = useState<PaymentMode>('buyer')
   const [paymentError, setPaymentError] = useState<string>()
   const [walletAddress, setWalletAddress] = useState<string>()
@@ -71,6 +112,24 @@ function App() {
   const [walletMenuOpen, setWalletMenuOpen] = useState(false)
   const [walletOptions, setWalletOptions] = useState<BrowserWalletOption[]>([])
   const [howItWorksOpen, setHowItWorksOpen] = useState(false)
+  const [publishSuccessOpen, setPublishSuccessOpen] = useState(false)
+
+  useEffect(() => {
+    const url = new URL(window.location.href)
+
+    if (reportMarketId) {
+      url.searchParams.set('report', reportMarketId)
+      url.searchParams.delete('market')
+    } else if (detailMarketId) {
+      url.searchParams.set('market', detailMarketId)
+      url.searchParams.delete('report')
+    } else {
+      url.searchParams.delete('market')
+      url.searchParams.delete('report')
+    }
+
+    window.history.replaceState(null, '', `${url.pathname}${url.search}${url.hash}`)
+  }, [detailMarketId, reportMarketId])
 
   useEffect(() => {
     const restored = restoreBrowserWalletSession()
@@ -168,7 +227,9 @@ function App() {
 
         if (gammaMarkets) {
           setMarkets(gammaMarkets)
-          setSelectedId(gammaMarkets[0].id)
+          if (!initialMarketId) {
+            setSelectedId(gammaMarkets[0].id)
+          }
           setFeedState('live')
           return
         }
@@ -184,7 +245,7 @@ function App() {
     loadMarkets()
 
     return () => controller.abort()
-  }, [])
+  }, [initialMarketId])
 
   const filteredMarkets = useMemo(
     () => markets.filter((market) => matchesTab(market, activeTab) && matchesSearch(market, query)),
@@ -193,12 +254,13 @@ function App() {
 
   const selectedMarket = useMemo(
     () =>
+      markets.find((market) => market.id === reportMarketId) ||
       markets.find((market) => market.id === detailMarketId) ||
       filteredMarkets.find((market) => market.id === selectedId) ||
       filteredMarkets[0] ||
       markets.find((market) => market.id === selectedId) ||
       markets[0],
-    [detailMarketId, filteredMarkets, markets, selectedId],
+    [detailMarketId, filteredMarkets, markets, reportMarketId, selectedId],
   )
 
   const signal = signalFor(selectedMarket.price, selectedMarket.fairPrice)
@@ -210,9 +272,13 @@ function App() {
       return
     }
 
+    if (selectedMarket.id !== detailMarketId) {
+      return
+    }
+
     const controller = new AbortController()
 
-    analyzeMarket(selectedMarket, controller.signal)
+    analyzeMarket(selectedMarket, walletAddress, controller.signal)
       .then((report) => {
         setAgentReport(report)
         setReportState('ready')
@@ -224,16 +290,50 @@ function App() {
       })
 
     return () => controller.abort()
-  }, [detailMarketId, selectedMarket])
+  }, [detailMarketId, selectedMarket, walletAddress])
+
+  useEffect(() => {
+    if (!reportMarketId) {
+      return
+    }
+
+    if (selectedMarket.id !== reportMarketId) {
+      return
+    }
+
+    if (agentReport?.marketId === reportMarketId && !agentReport.locked) {
+      return
+    }
+
+    const controller = new AbortController()
+
+    fetchSavedReport(reportMarketId, walletAddress, controller.signal)
+      .then((report) => {
+        setAgentReport(report)
+        setReportState('ready')
+        if (!report.locked && paymentState !== 'published') {
+          setPaymentState(report.proof?.status === 'published' ? 'published' : 'paid')
+        }
+      })
+      .catch(() => {
+        if (!controller.signal.aborted) {
+          setReportState('offline')
+        }
+      })
+
+    return () => controller.abort()
+  }, [agentReport?.locked, agentReport?.marketId, paymentState, reportMarketId, selectedMarket, walletAddress])
 
   function selectMarket(id: string) {
     setSelectedId(id)
     setDetailMarketId(id)
+    setReportMarketId(null)
     setPaymentState('quote')
     setPaymentMode('buyer')
     setPaymentError(undefined)
     setAgentReport(undefined)
     setReportState('loading')
+    setPublishSuccessOpen(false)
   }
 
   function handleTabChange(tab: MarketTab) {
@@ -252,6 +352,7 @@ function App() {
     setMarkets((current) => [customMarket, ...current])
     setSelectedId(customMarket.id)
     setDetailMarketId(customMarket.id)
+    setReportMarketId(null)
     setActiveTab('Custom')
     setCustomQuestion('')
     setCustomImageUrl(undefined)
@@ -261,11 +362,24 @@ function App() {
     setPaymentError(undefined)
     setAgentReport(undefined)
     setReportState('loading')
+    setPublishSuccessOpen(false)
   }
 
   function closeDetail() {
     setDetailMarketId(null)
+    setReportMarketId(null)
     setReportState('idle')
+  }
+
+  function viewReport() {
+    setPublishSuccessOpen(false)
+    setReportMarketId(selectedMarket.id)
+    setDetailMarketId(null)
+  }
+
+  function backToMarketFromReport() {
+    setReportMarketId(null)
+    setDetailMarketId(selectedMarket.id)
   }
 
   function handleCustomImage(file: File | null) {
@@ -287,9 +401,12 @@ function App() {
     setPaymentState('required')
     setPaymentError(undefined)
     try {
-      const report = await requestLockedReport(selectedMarket)
+      const report = await requestLockedReport(selectedMarket, walletAddress)
       setAgentReport(report)
       setReportState('ready')
+      if (!report.locked) {
+        setPaymentState(report.proof?.status === 'published' ? 'published' : 'paid')
+      }
     } catch {
       setReportState('offline')
     }
@@ -309,7 +426,7 @@ function App() {
 
       await connectWalletOption(wallets[0]?.uuid)
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Wallet connection failed.'
+      const message = readableError(error, 'Wallet connection failed.')
       setWalletStatus(walletAddress ? 'connected' : 'idle')
       window.alert(message)
     }
@@ -325,7 +442,7 @@ function App() {
       setWalletMenuOpen(false)
       setWalletOptions([])
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Wallet connection failed.'
+      const message = readableError(error, 'Wallet connection failed.')
       setWalletStatus(walletAddress ? 'connected' : 'idle')
       window.alert(message)
     }
@@ -348,7 +465,7 @@ function App() {
 
       await connectWalletOption(wallets[0]?.uuid)
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Wallet switch failed.'
+      const message = readableError(error, 'Wallet switch failed.')
       setWalletStatus(walletAddress ? 'connected' : 'idle')
       window.alert(message)
     }
@@ -379,10 +496,19 @@ function App() {
     setPaymentState('settling')
     setPaymentError(undefined)
     try {
+      const lockedReport = await requestLockedReport(selectedMarket, walletAddress)
+      setAgentReport(lockedReport)
+      setReportState('ready')
+
+      if (!lockedReport.locked) {
+        setPaymentState(lockedReport.proof?.status === 'published' ? 'published' : 'paid')
+        return true
+      }
+
       const report =
         mode === 'buyer'
-          ? await settleReportFromBuyerWallet(selectedMarket.id, reportHash)
-          : await settleReportPayment(selectedMarket.id, reportHash)
+          ? await settleReportFromBuyerWallet(selectedMarket.id, lockedReport.reportHash)
+          : await settleReportPayment(selectedMarket.id, lockedReport.reportHash, walletAddress)
       const wallet = restoreBrowserWalletSession()
 
       if (wallet) {
@@ -394,27 +520,45 @@ function App() {
       setAgentReport(report)
       setPaymentState('paid')
       setReportState('ready')
+      return true
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Payment failed.'
+      const message = readableError(error, 'Payment failed.')
       setPaymentError(message)
       setPaymentState('required')
+      return false
     }
   }
 
   async function publishSignal() {
+    if (paymentState === 'publishing' || paymentState === 'published') {
+      return
+    }
+
+    setPaymentState('publishing')
+    setPaymentError(undefined)
     try {
-      const report = await publishReportProof(selectedMarket.id, reportHash)
+      const report = await publishReportProof(selectedMarket.id, reportHash, walletAddress)
       setAgentReport(report)
       setReportState('ready')
       setPaymentState('published')
-    } catch {
-      setReportState('offline')
+      setPublishSuccessOpen(true)
+    } catch (error) {
+      setPaymentError(readableError(error, 'Arc publish failed.'))
+      setReportState('ready')
+      setPaymentState('paid')
     }
   }
 
   return (
     <div className="app-shell">
       <HowItWorksModal open={howItWorksOpen} onClose={() => setHowItWorksOpen(false)} />
+      <PublishSuccessModal
+        open={publishSuccessOpen}
+        market={selectedMarket}
+        report={agentReport}
+        onClose={() => setPublishSuccessOpen(false)}
+        onViewReport={viewReport}
+      />
       <Topbar
         query={query}
         walletAddress={walletAddress}
@@ -435,7 +579,15 @@ function App() {
         }}
       />
 
-      {detailMarketId ? (
+      {reportMarketId ? (
+        <ReportPage
+          market={selectedMarket}
+          report={agentReport}
+          paymentState={paymentState}
+          signal={agentReport?.signal || signal}
+          onBackToMarket={backToMarketFromReport}
+        />
+      ) : detailMarketId ? (
         <MarketDetail
           market={selectedMarket}
           paymentState={paymentState}
@@ -451,6 +603,7 @@ function App() {
           onPaymentModeChange={setPaymentMode}
           onSettleReport={settleReport}
           onSignalPublish={publishSignal}
+          onViewReport={viewReport}
         />
       ) : (
         <>
