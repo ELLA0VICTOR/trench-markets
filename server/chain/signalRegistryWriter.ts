@@ -52,7 +52,7 @@ function proofIdForOnchain(registryAddress: Hex, publisher: Hex, report: AgentRe
   )
 }
 
-async function existingProofPublished(
+async function existingProof(
   publicClient: ReturnType<typeof createPublicClient>,
   registryAddress: Hex,
   proofId: Hex,
@@ -65,7 +65,27 @@ async function existingProofPublished(
   })
   const publishedAt = record[9]
 
-  return typeof publishedAt === 'bigint' && publishedAt > 0n
+  if (typeof publishedAt !== 'bigint' || publishedAt === 0n) {
+    return undefined
+  }
+
+  const logs = await publicClient
+    .getContractEvents({
+      address: registryAddress,
+      abi: signalRegistryAbi,
+      eventName: 'SignalPublished',
+      args: { proofId },
+      fromBlock: 0n,
+      toBlock: 'latest',
+    })
+    .catch(() => [])
+  const latestLog = logs.at(-1)
+
+  return {
+    proofId,
+    txHash: latestLog?.transactionHash,
+    blockNumber: latestLog?.blockNumber?.toString(),
+  }
 }
 
 function extractProofId(receipt: TransactionReceipt) {
@@ -101,11 +121,14 @@ export async function publishSignalToArc(report: AgentReport): Promise<ArcProofW
     transport,
   })
   const proofId = proofIdForOnchain(registryAddress, account.address, report)
+  const alreadyPublished = await existingProof(publicClient, registryAddress, proofId)
 
-  if (await existingProofPublished(publicClient, registryAddress, proofId)) {
+  if (alreadyPublished) {
     return {
       proofId,
+      txHash: alreadyPublished.txHash,
       contractAddress: registryAddress,
+      blockNumber: alreadyPublished.blockNumber,
       alreadyPublished: true,
     }
   }

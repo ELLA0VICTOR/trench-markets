@@ -3,6 +3,13 @@ import type { AgentReport } from '../types.js'
 import { arcWriterConfigured, publishSignalToArc } from '../chain/signalRegistryWriter.js'
 
 export async function publishArcProof(report: AgentReport) {
+  if (report.proof?.status === 'published' && report.proof.txHash) {
+    return {
+      ...report,
+      locked: false,
+    }
+  }
+
   if (!arcWriterConfigured()) {
     const proofId = proofIdFor(report.marketId, report.reportHash)
 

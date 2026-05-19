@@ -49,6 +49,7 @@ export function ReportPage({ market, report, paymentState, signal, onBackToMarke
   const marketPrice = report?.marketPrice ?? market.price
   const finalSignal = report?.signal || signal
   const proofTxUrl = arcExplorerTxUrl(report?.proof?.txHash)
+  const proofReference = report?.proof?.txHash || report?.proof?.proofId
 
   return (
     <main className="report-page">
@@ -222,7 +223,7 @@ export function ReportPage({ market, report, paymentState, signal, onBackToMarke
             </div>
             <dl className="report-dl proof">
               <div>
-                <dt>Tx hash</dt>
+                <dt>{report?.proof?.txHash ? 'Tx hash' : 'Proof id'}</dt>
                 <dd>
                   {proofTxUrl ? (
                     <a className="hash-link" href={proofTxUrl} target="_blank" rel="noreferrer">
@@ -230,7 +231,7 @@ export function ReportPage({ market, report, paymentState, signal, onBackToMarke
                       <span aria-hidden="true">↗</span>
                     </a>
                   ) : (
-                    shortHash(report?.proof?.txHash)
+                    shortHash(proofReference)
                   )}
                 </dd>
               </div>
@@ -240,7 +241,7 @@ export function ReportPage({ market, report, paymentState, signal, onBackToMarke
               </div>
               <div>
                 <dt>Block</dt>
-                <dd>{report?.proof?.blockNumber || 'pending'}</dd>
+                <dd>{report?.proof?.blockNumber || (report?.proof?.status === 'published' ? 'already committed' : 'pending')}</dd>
               </div>
             </dl>
           </section>

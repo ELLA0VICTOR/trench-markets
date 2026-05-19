@@ -23,6 +23,7 @@ export function PublishSuccessModal({ open, market, report, onClose, onViewRepor
   }
 
   const proofTxUrl = arcExplorerTxUrl(report?.proof?.txHash)
+  const proofReference = report?.proof?.txHash || report?.proof?.proofId
 
   return (
     <div className="modal-backdrop" role="presentation">
@@ -38,7 +39,7 @@ export function PublishSuccessModal({ open, market, report, onClose, onViewRepor
         <p>{market.title}</p>
         <dl>
           <div>
-            <dt>Tx hash</dt>
+            <dt>{report?.proof?.txHash ? 'Tx hash' : 'Proof id'}</dt>
             <dd>
               {proofTxUrl ? (
                 <a className="hash-link" href={proofTxUrl} target="_blank" rel="noreferrer">
@@ -46,13 +47,13 @@ export function PublishSuccessModal({ open, market, report, onClose, onViewRepor
                   <span aria-hidden="true">↗</span>
                 </a>
               ) : (
-                shortHash(report?.proof?.txHash)
+                shortHash(proofReference)
               )}
             </dd>
           </div>
           <div>
             <dt>Block</dt>
-            <dd>{report?.proof?.blockNumber || 'pending'}</dd>
+            <dd>{report?.proof?.blockNumber || 'already committed'}</dd>
           </div>
           <div>
             <dt>Report hash</dt>
