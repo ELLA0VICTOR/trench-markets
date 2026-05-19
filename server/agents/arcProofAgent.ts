@@ -43,8 +43,10 @@ export async function publishArcProof(report: AgentReport) {
       {
         agent: 'Arc Proof Agent' as const,
         status: 'live' as const,
-        summary: `Published report hash to Arc SignalRegistry at ${proof.contractAddress}.`,
-        artifact: proof.txHash,
+        summary: proof.alreadyPublished
+          ? `Report hash was already committed to Arc SignalRegistry at ${proof.contractAddress}.`
+          : `Published report hash to Arc SignalRegistry at ${proof.contractAddress}.`,
+        artifact: proof.txHash || proof.proofId,
       },
     ],
   }

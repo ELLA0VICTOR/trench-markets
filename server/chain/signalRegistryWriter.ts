@@ -1,7 +1,9 @@
 import {
   createPublicClient,
   createWalletClient,
+  encodePacked,
   http,
+  keccak256,
   type Hex,
   type TransactionReceipt,
 } from 'viem'
@@ -19,9 +21,10 @@ import {
 
 export type ArcProofWrite = {
   proofId?: Hex
-  txHash: Hex
+  txHash?: Hex
   contractAddress: Hex
-  blockNumber: string
+  blockNumber?: string
+  alreadyPublished?: boolean
 }
 
 export function arcWriterConfigured() {
@@ -38,6 +41,31 @@ function int16(value: number) {
 
 function artifactUri(report: AgentReport) {
   return `trench://reports/${encodeURIComponent(report.marketId)}/${report.reportHash}`
+}
+
+function proofIdForOnchain(registryAddress: Hex, publisher: Hex, report: AgentReport) {
+  return keccak256(
+    encodePacked(
+      ['uint256', 'address', 'address', 'bytes32', 'string'],
+      [BigInt(arcTestnet.id), registryAddress, publisher, report.reportHash as Hex, report.marketId],
+    ),
+  )
+}
+
+async function existingProofPublished(
+  publicClient: ReturnType<typeof createPublicClient>,
+  registryAddress: Hex,
+  proofId: Hex,
+) {
+  const record = await publicClient.readContract({
+    address: registryAddress,
+    abi: signalRegistryAbi,
+    functionName: 'records',
+    args: [proofId],
+  })
+  const publishedAt = record[9]
+
+  return typeof publishedAt === 'bigint' && publishedAt > 0n
 }
 
 function extractProofId(receipt: TransactionReceipt) {
@@ -72,6 +100,15 @@ export async function publishSignalToArc(report: AgentReport): Promise<ArcProofW
     chain: arcTestnet,
     transport,
   })
+  const proofId = proofIdForOnchain(registryAddress, account.address, report)
+
+  if (await existingProofPublished(publicClient, registryAddress, proofId)) {
+    return {
+      proofId,
+      contractAddress: registryAddress,
+      alreadyPublished: true,
+    }
+  }
 
   const txHash = await walletClient.writeContract({
     address: registryAddress,
