@@ -30,6 +30,10 @@ function paymentDescription(paymentState: PaymentState) {
     return 'Buyer agent is attaching payment proof and retrying the request.'
   }
 
+  if (paymentState === 'funding') {
+    return 'Buyer wallet is approving and depositing Arc USDC into Circle Gateway.'
+  }
+
   if (paymentState === 'publishing') {
     return 'Arc writer is committing the signal proof.'
   }

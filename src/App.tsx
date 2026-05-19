@@ -106,6 +106,7 @@ function App() {
   )
   const [paymentMode, setPaymentMode] = useState<PaymentMode>('buyer')
   const [paymentError, setPaymentError] = useState<string>()
+  const [paymentNotice, setPaymentNotice] = useState<string>()
   const [walletAddress, setWalletAddress] = useState<string>()
   const [walletName, setWalletName] = useState<string>()
   const [walletStatus, setWalletStatus] = useState<WalletStatus>('idle')
@@ -331,6 +332,7 @@ function App() {
     setPaymentState('quote')
     setPaymentMode('buyer')
     setPaymentError(undefined)
+    setPaymentNotice(undefined)
     setAgentReport(undefined)
     setReportState('loading')
     setPublishSuccessOpen(false)
@@ -340,6 +342,7 @@ function App() {
     setActiveTab(tab)
     setPaymentState('quote')
     setPaymentError(undefined)
+    setPaymentNotice(undefined)
   }
 
   function handleCustomMarket(event: FormEvent<HTMLFormElement>) {
@@ -360,6 +363,7 @@ function App() {
     setPaymentState('quote')
     setPaymentMode('buyer')
     setPaymentError(undefined)
+    setPaymentNotice(undefined)
     setAgentReport(undefined)
     setReportState('loading')
     setPublishSuccessOpen(false)
@@ -400,6 +404,7 @@ function App() {
   async function requestReport() {
     setPaymentState('required')
     setPaymentError(undefined)
+    setPaymentNotice(undefined)
     try {
       const report = await requestLockedReport(selectedMarket, walletAddress)
       setAgentReport(report)
@@ -495,6 +500,7 @@ function App() {
     setPaymentMode(mode)
     setPaymentState('settling')
     setPaymentError(undefined)
+    setPaymentNotice(undefined)
     try {
       const lockedReport = await requestLockedReport(selectedMarket, walletAddress)
       setAgentReport(lockedReport)
@@ -507,7 +513,16 @@ function App() {
 
       const report =
         mode === 'buyer'
-          ? await settleReportFromBuyerWallet(selectedMarket.id, lockedReport.reportHash)
+          ? await settleReportFromBuyerWallet(selectedMarket.id, lockedReport.reportHash, (status) => {
+              setPaymentNotice(status.message)
+              setPaymentState(
+                ['checking-wallet', 'approving-gateway', 'depositing-gateway', 'waiting-gateway'].includes(
+                  status.phase,
+                )
+                  ? 'funding'
+                  : 'settling',
+              )
+            })
           : await settleReportPayment(selectedMarket.id, lockedReport.reportHash, walletAddress)
       const wallet = restoreBrowserWalletSession()
 
@@ -519,11 +534,13 @@ function App() {
 
       setAgentReport(report)
       setPaymentState('paid')
+      setPaymentNotice(undefined)
       setReportState('ready')
       return true
     } catch (error) {
       const message = readableError(error, 'Payment failed.')
       setPaymentError(message)
+      setPaymentNotice(undefined)
       setPaymentState('required')
       return false
     }
@@ -536,6 +553,7 @@ function App() {
 
     setPaymentState('publishing')
     setPaymentError(undefined)
+    setPaymentNotice(undefined)
     try {
       const report = await publishReportProof(selectedMarket.id, reportHash, walletAddress)
       setAgentReport(report)
@@ -598,6 +616,7 @@ function App() {
           proofLabel={proofLabel}
           paymentMode={paymentMode}
           paymentError={paymentError}
+          paymentNotice={paymentNotice}
           onBack={closeDetail}
           onReportRequest={requestReport}
           onPaymentModeChange={setPaymentMode}

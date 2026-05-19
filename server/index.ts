@@ -297,6 +297,19 @@ async function fetchGatewayBalance(address: string) {
   const data = (await response.json().catch(() => ({}))) as GatewayBalanceResponse
 
   if (!response.ok) {
+    if (response.status === 404) {
+      return {
+        address: depositor,
+        domain: ARC_GATEWAY_DOMAIN,
+        gatewayAvailable: '0',
+        gatewayAvailableAtomic: '0',
+        gatewayWithdrawing: '0',
+        gatewayWithdrawingAtomic: '0',
+        gatewayWithdrawable: '0',
+        gatewayWithdrawableAtomic: '0',
+      }
+    }
+
     throw new Error(data.message || data.error || response.statusText)
   }
 

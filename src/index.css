@@ -1876,6 +1876,14 @@ dd {
   line-height: 1.45;
 }
 
+.payment-status {
+  margin: 0;
+  overflow-wrap: anywhere;
+  color: var(--accent);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
 .primary-action {
   min-height: 40px;
   border: 1px solid var(--accent-border);

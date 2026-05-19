@@ -1,5 +1,5 @@
 import type { AgentReport } from '../types/report'
-import { getAddress, recoverTypedDataAddress } from 'viem'
+import { decodeFunctionResult, encodeFunctionData, formatUnits, getAddress, parseAbi, recoverTypedDataAddress } from 'viem'
 import { apiFetch } from '../lib/api'
 
 type ReportResponse = {
@@ -38,6 +38,25 @@ export type BrowserWalletSession = {
   verificationSignature?: `0x${string}`
   verifiedAt?: number
   connectedAt: number
+}
+
+export type BuyerWalletPaymentPhase =
+  | 'requesting-challenge'
+  | 'checking-gateway'
+  | 'checking-wallet'
+  | 'approving-gateway'
+  | 'depositing-gateway'
+  | 'waiting-gateway'
+  | 'signing-payment'
+  | 'settling-payment'
+
+export type BuyerWalletPaymentStatus = {
+  phase: BuyerWalletPaymentPhase
+  message: string
+}
+
+type PayReportOptions = {
+  onStatus?: (status: BuyerWalletPaymentStatus) => void
 }
 
 type GatewayPaymentOption = {
@@ -97,11 +116,25 @@ declare global {
 
 const ARC_TESTNET_NETWORK = 'eip155:5042002'
 const ARC_TESTNET_CHAIN_ID_HEX = '0x4cef52'
+const ARC_USDC_ADDRESS = '0x3600000000000000000000000000000000000000'
+const ARC_GATEWAY_WALLET_ADDRESS = '0x0077777d7EBA4688BDeF3E311b846F25870A19B9'
 const GATEWAY_BATCHING_NAME = 'GatewayWalletBatched'
 const GATEWAY_BATCHING_VERSION = '1'
 const GATEWAY_AUTH_VALIDITY_WINDOW_SECONDS = 7 * 24 * 60 * 60 + 100
 const WALLET_SESSION_KEY = 'trench.walletSession.v1'
 const WALLET_VERIFICATION_TTL_MS = 30 * 24 * 60 * 60 * 1_000
+const GATEWAY_BALANCE_POLL_ATTEMPTS = 18
+const GATEWAY_BALANCE_POLL_DELAY_MS = 2_000
+const TRANSACTION_RECEIPT_ATTEMPTS = 40
+const TRANSACTION_RECEIPT_DELAY_MS = 1_500
+
+const erc20Abi = parseAbi([
+  'function balanceOf(address account) view returns (uint256)',
+  'function allowance(address owner, address spender) view returns (uint256)',
+  'function approve(address spender, uint256 amount) returns (bool)',
+])
+
+const gatewayWalletAbi = parseAbi(['function deposit(address token, uint256 value)'])
 
 let activeWallet: WalletProviderDetail | undefined
 
@@ -671,6 +704,147 @@ function formatAtomicUsdc(value: string) {
   return fraction ? `${whole}.${fraction}` : whole.toString()
 }
 
+function emitPaymentStatus(options: PayReportOptions | undefined, phase: BuyerWalletPaymentPhase, message: string) {
+  options?.onStatus?.({ phase, message })
+}
+
+function delay(ms: number) {
+  return new Promise((resolve) => {
+    window.setTimeout(resolve, ms)
+  })
+}
+
+function contractCall(provider: EthereumProvider, to: `0x${string}`, data: `0x${string}`) {
+  return provider.request({
+    method: 'eth_call',
+    params: [
+      {
+        to,
+        data,
+      },
+      'latest',
+    ],
+  })
+}
+
+async function readUsdcBalance(provider: EthereumProvider, token: `0x${string}`, address: `0x${string}`) {
+  const data = encodeFunctionData({
+    abi: erc20Abi,
+    functionName: 'balanceOf',
+    args: [address],
+  })
+  const result = assertHex(await contractCall(provider, token, data))
+  const decoded = decodeFunctionResult({
+    abi: erc20Abi,
+    functionName: 'balanceOf',
+    data: result,
+  })
+
+  if (typeof decoded !== 'bigint') {
+    throw new Error('USDC balance call returned an unexpected value.')
+  }
+
+  return decoded
+}
+
+async function readUsdcAllowance(
+  provider: EthereumProvider,
+  token: `0x${string}`,
+  owner: `0x${string}`,
+  spender: `0x${string}`,
+) {
+  const data = encodeFunctionData({
+    abi: erc20Abi,
+    functionName: 'allowance',
+    args: [owner, spender],
+  })
+  const result = assertHex(await contractCall(provider, token, data))
+  const decoded = decodeFunctionResult({
+    abi: erc20Abi,
+    functionName: 'allowance',
+    data: result,
+  })
+
+  if (typeof decoded !== 'bigint') {
+    throw new Error('USDC allowance call returned an unexpected value.')
+  }
+
+  return decoded
+}
+
+async function sendContractTransaction(
+  provider: EthereumProvider,
+  from: `0x${string}`,
+  to: `0x${string}`,
+  data: `0x${string}`,
+  label: string,
+  gas?: string,
+) {
+  try {
+    return assertHex(
+      await provider.request({
+        method: 'eth_sendTransaction',
+        params: [
+          {
+            from,
+            to,
+            data,
+            value: '0x0',
+            ...(gas ? { gas } : {}),
+          },
+        ],
+      }),
+    )
+  } catch (error) {
+    if (rpcErrorCode(error) === 4001) {
+      throw new Error(`${label} was rejected in the wallet. Confirm it to continue the report payment.`, {
+        cause: error,
+      })
+    }
+
+    throw new Error(`${label} transaction failed: ${rpcErrorMessage(error)}`, { cause: error })
+  }
+}
+
+async function waitForTransactionReceipt(provider: EthereumProvider, hash: `0x${string}`, label: string) {
+  for (let attempt = 0; attempt < TRANSACTION_RECEIPT_ATTEMPTS; attempt += 1) {
+    const receipt = await provider
+      .request({
+        method: 'eth_getTransactionReceipt',
+        params: [hash],
+      })
+      .catch(() => null)
+
+    if (receipt && typeof receipt === 'object') {
+      const status = (receipt as { status?: unknown }).status
+
+      if (status === '0x0') {
+        throw new Error(`${label} transaction reverted: ${hash}`)
+      }
+
+      return
+    }
+
+    await delay(TRANSACTION_RECEIPT_DELAY_MS)
+  }
+
+  throw new Error(`${label} transaction was submitted but not confirmed yet: ${hash}`)
+}
+
+async function waitForGatewayBalance(address: `0x${string}`, requiredAtomic: string) {
+  for (let attempt = 0; attempt < GATEWAY_BALANCE_POLL_ATTEMPTS; attempt += 1) {
+    const balance = await gatewayBalanceFor(address)
+
+    if (BigInt(balance.gatewayAvailableAtomic) >= BigInt(requiredAtomic)) {
+      return balance
+    }
+
+    await delay(GATEWAY_BALANCE_POLL_DELAY_MS)
+  }
+
+  return gatewayBalanceFor(address)
+}
+
 function createNonce(): `0x${string}` {
   const bytes = new Uint8Array(32)
   crypto.getRandomValues(bytes)
@@ -715,14 +889,114 @@ async function gatewayBalanceFor(address: `0x${string}`) {
   return data
 }
 
-async function assertGatewayBalance(address: `0x${string}`, requiredAtomic: string) {
-  const balance = await gatewayBalanceFor(address)
+async function fundGatewayFromWallet(
+  provider: EthereumProvider,
+  address: `0x${string}`,
+  option: GatewayPaymentOption,
+  depositAtomic: bigint,
+  options?: PayReportOptions,
+) {
+  const token = checksumAddress(option.asset || ARC_USDC_ADDRESS, 'Gateway USDC token')
+  const gatewayWallet = checksumAddress(
+    option.extra?.verifyingContract || ARC_GATEWAY_WALLET_ADDRESS,
+    'Gateway Wallet contract',
+  )
+  const depositLabel = formatAtomicUsdc(depositAtomic.toString())
 
-  if (BigInt(balance.gatewayAvailableAtomic) < BigInt(requiredAtomic)) {
+  emitPaymentStatus(
+    options,
+    'checking-wallet',
+    `Gateway needs ${depositLabel} more USDC. Checking the buyer wallet balance on Arc.`,
+  )
+
+  const walletBalance = await readUsdcBalance(provider, token, address)
+
+  if (walletBalance < depositAtomic) {
     throw new Error(
-      `Gateway balance is too low for ${shortAddress(address)}. Available ${balance.gatewayAvailable} USDC, need ${formatAtomicUsdc(requiredAtomic)} USDC. Deposit into Circle Gateway for this exact wallet or use Sponsored demo.`,
+      `Gateway balance is low and ${shortAddress(address)} only has ${formatUnits(walletBalance, 6)} Arc USDC available. Need ${depositLabel} USDC. Fund this wallet from the Arc faucet or use Sponsored demo.`,
     )
   }
+
+  const allowance = await readUsdcAllowance(provider, token, address, gatewayWallet)
+
+  if (allowance < depositAtomic) {
+    const approvalData = encodeFunctionData({
+      abi: erc20Abi,
+      functionName: 'approve',
+      args: [gatewayWallet, depositAtomic],
+    })
+
+    emitPaymentStatus(
+      options,
+      'approving-gateway',
+      `Approve Circle Gateway to move ${depositLabel} USDC from the buyer wallet.`,
+    )
+
+    const approvalTxHash = await sendContractTransaction(
+      provider,
+      address,
+      token,
+      approvalData,
+      'Gateway approval',
+    )
+
+    await waitForTransactionReceipt(provider, approvalTxHash, 'Gateway approval')
+  }
+
+  const depositData = encodeFunctionData({
+    abi: gatewayWalletAbi,
+    functionName: 'deposit',
+    args: [token, depositAtomic],
+  })
+
+  emitPaymentStatus(
+    options,
+    'depositing-gateway',
+    `Deposit ${depositLabel} USDC into Circle Gateway, then Trench will retry the x402 payment.`,
+  )
+
+  const depositTxHash = await sendContractTransaction(
+    provider,
+    address,
+    gatewayWallet,
+    depositData,
+    'Gateway deposit',
+    '0x1d4c0',
+  )
+
+  await waitForTransactionReceipt(provider, depositTxHash, 'Gateway deposit')
+
+  return depositTxHash
+}
+
+async function ensureGatewayBalance(
+  provider: EthereumProvider,
+  address: `0x${string}`,
+  option: GatewayPaymentOption,
+  options?: PayReportOptions,
+) {
+  const requiredAtomic = option.amount
+
+  emitPaymentStatus(options, 'checking-gateway', 'Checking Circle Gateway balance for this buyer wallet.')
+  const balance = await gatewayBalanceFor(address)
+
+  if (BigInt(balance.gatewayAvailableAtomic) >= BigInt(requiredAtomic)) {
+    return balance
+  }
+
+  const depositAtomic = BigInt(requiredAtomic) - BigInt(balance.gatewayAvailableAtomic)
+  await fundGatewayFromWallet(provider, address, option, depositAtomic, options)
+
+  emitPaymentStatus(options, 'waiting-gateway', 'Gateway deposit confirmed. Waiting for Circle Gateway to index it.')
+  const nextBalance = await waitForGatewayBalance(address, requiredAtomic)
+
+  if (BigInt(nextBalance.gatewayAvailableAtomic) < BigInt(requiredAtomic)) {
+    throw new Error(
+      `Gateway deposit was confirmed, but Gateway still shows ${nextBalance.gatewayAvailable} USDC for ${shortAddress(address)}. Wait a few seconds and click Pay from buyer wallet again.`,
+    )
+  }
+
+  return nextBalance
 }
 
 async function createPaymentPayload(
@@ -849,7 +1123,7 @@ async function parseReportResponse(response: Response) {
   return data.report
 }
 
-export async function payReportFromBuyerWallet(marketId: string, reportHash: string) {
+export async function payReportFromBuyerWallet(marketId: string, reportHash: string, options?: PayReportOptions) {
   const wallet = await ensureWallet()
   const provider = wallet.provider
   const buyerAddress = await connectBuyerWallet(provider)
@@ -870,6 +1144,8 @@ export async function payReportFromBuyerWallet(marketId: string, reportHash: str
   )
   const body: UnlockBody = { marketId, reportHash, buyerAddress: paymentAddress }
   const serializedBody = JSON.stringify(body)
+
+  emitPaymentStatus(options, 'requesting-challenge', 'Requesting the x402 payment challenge for this report.')
   const initialResponse = await apiFetch('/api/reports/unlock', {
     method: 'POST',
     headers: {
@@ -906,7 +1182,8 @@ export async function payReportFromBuyerWallet(marketId: string, reportHash: str
     )
   }
 
-  await assertGatewayBalance(paymentAddress, gatewayOption.amount)
+  await ensureGatewayBalance(provider, paymentAddress, gatewayOption, options)
+  emitPaymentStatus(options, 'signing-payment', 'Gateway is funded. Sign the x402 authorization to pay the seller.')
   const paymentPayload = await createPaymentPayload(
     provider,
     paymentAddress,
@@ -914,6 +1191,7 @@ export async function payReportFromBuyerWallet(marketId: string, reportHash: str
     gatewayOption,
   )
   writeWalletSession(wallet, paymentPayload.signerAddress, existingSession?.verificationSignature)
+  emitPaymentStatus(options, 'settling-payment', 'Submitting the signed x402 payment for Gateway settlement.')
   const paidResponse = await apiFetch('/api/reports/unlock', {
     method: 'POST',
     headers: {

@@ -1,7 +1,7 @@
 import type { Market } from '../types/market'
 import type { AgentReport } from '../types/report'
 import { apiFetch } from '../lib/api'
-import { payReportFromBuyerWallet } from './x402BuyerWallet'
+import { payReportFromBuyerWallet, type BuyerWalletPaymentStatus } from './x402BuyerWallet'
 
 type ReportResponse = {
   report: AgentReport
@@ -47,8 +47,12 @@ export function settleReportPayment(marketId: string, reportHash: string, buyerA
   return postReport('/api/payments/sponsored', { marketId, reportHash, buyerAddress })
 }
 
-export function settleReportFromBuyerWallet(marketId: string, reportHash: string) {
-  return payReportFromBuyerWallet(marketId, reportHash)
+export function settleReportFromBuyerWallet(
+  marketId: string,
+  reportHash: string,
+  onStatus?: (status: BuyerWalletPaymentStatus) => void,
+) {
+  return payReportFromBuyerWallet(marketId, reportHash, { onStatus })
 }
 
 export function publishReportProof(marketId: string, reportHash: string, buyerAddress?: string) {

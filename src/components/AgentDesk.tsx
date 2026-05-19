@@ -28,6 +28,10 @@ function paymentCopy(paymentState: PaymentState) {
     return 'Payment proof is being attached to the retry request.'
   }
 
+  if (paymentState === 'funding') {
+    return 'Gateway is being funded from the buyer wallet before x402 settlement.'
+  }
+
   if (paymentState === 'paid') {
     return 'Full report is unlocked and ready to publish.'
   }
@@ -51,7 +55,12 @@ export function AgentDesk({
 }: AgentDeskProps) {
   const confidence = confidenceFor(market.price, market.fairPrice, market.liquidity)
   const unlocked = paymentState === 'paid' || paymentState === 'publishing' || paymentState === 'published'
-  const lockedLabel = paymentState === 'settling' ? 'settling' : paymentState === 'publishing' ? 'publishing' : 'locked'
+  const lockedLabel =
+    paymentState === 'settling' || paymentState === 'funding'
+      ? paymentState
+      : paymentState === 'publishing'
+        ? 'publishing'
+        : 'locked'
 
   return (
     <aside className="agent-desk" aria-label="Agent market desk">

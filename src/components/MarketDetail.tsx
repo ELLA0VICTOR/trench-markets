@@ -17,6 +17,7 @@ type MarketDetailProps = {
   proofLabel: string
   paymentMode: 'buyer' | 'sponsored'
   paymentError?: string
+  paymentNotice?: string
   onBack: () => void
   onReportRequest: () => void
   onPaymentModeChange: (mode: 'buyer' | 'sponsored') => void
@@ -36,6 +37,10 @@ function paymentCopy(paymentState: PaymentState) {
 
   if (paymentState === 'settling') {
     return 'Payment proof is being attached to the retry request.'
+  }
+
+  if (paymentState === 'funding') {
+    return 'Gateway balance is being funded from the buyer wallet before the x402 authorization is signed.'
   }
 
   if (paymentState === 'paid') {
@@ -100,6 +105,7 @@ export function MarketDetail({
   proofLabel,
   paymentMode,
   paymentError,
+  paymentNotice,
   onBack,
   onReportRequest,
   onPaymentModeChange,
@@ -111,11 +117,12 @@ export function MarketDetail({
   const unlocked = paymentState === 'paid' || paymentState === 'publishing' || paymentState === 'published'
   const isPublished = paymentState === 'published'
   const isPublishing = paymentState === 'publishing'
+  const isPaymentBusy = paymentState === 'settling' || paymentState === 'funding'
   const fairPrice = agentReport?.fairPrice || market.fairPrice
   const challenge = agentReport?.challenge
   const reportPriceLabel = challenge ? `$${challenge.amount} ${challenge.asset}` : reportPrice
   const pricingRationale = challenge?.pricing.rationale.join(' / ')
-  const lockedLabel = paymentState === 'settling' ? 'settling' : isPublishing ? 'publishing' : 'locked'
+  const lockedLabel = isPaymentBusy ? paymentState : isPublishing ? 'publishing' : 'locked'
   const proofTxUrl = arcExplorerTxUrl(agentReport?.proof?.txHash)
   const [actionStep, setActionStep] = useState(0)
   const actionSteps = ['Quote', 'Payment', 'Proof']
@@ -286,7 +293,7 @@ export function MarketDetail({
                   type="button"
                   className={paymentMode === 'buyer' ? 'is-active' : ''}
                   onClick={() => onPaymentModeChange('buyer')}
-                  disabled={paymentState === 'settling'}
+                  disabled={isPaymentBusy}
                 >
                   Buyer wallet
                 </button>
@@ -294,13 +301,14 @@ export function MarketDetail({
                   type="button"
                   className={paymentMode === 'sponsored' ? 'is-active' : ''}
                   onClick={() => onPaymentModeChange('sponsored')}
-                  disabled={paymentState === 'settling'}
+                  disabled={isPaymentBusy}
                 >
                   Sponsored demo
                 </button>
               </div>
 
               <p className="action-copy">{paymentCopy(paymentState)}</p>
+              {paymentNotice ? <p className="payment-status">{paymentNotice}</p> : null}
 
               <div className="faucet-row">
                 <span>Need Arc faucet?</span>
@@ -317,7 +325,13 @@ export function MarketDetail({
                 onClick={settleReportAndAdvance}
                 disabled={paymentState !== 'required'}
               >
-                {paymentMode === 'buyer' ? 'Pay from buyer wallet' : 'Run sponsored demo'}
+                {paymentState === 'funding'
+                  ? 'Funding Gateway...'
+                  : paymentState === 'settling'
+                    ? 'Settling payment...'
+                    : paymentMode === 'buyer'
+                      ? 'Pay from buyer wallet'
+                      : 'Run sponsored demo'}
               </button>
             </div>
           ) : null}
